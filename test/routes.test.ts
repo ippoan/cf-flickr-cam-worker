@@ -258,3 +258,28 @@ describe("POST /admin/sync", () => {
     expect(body).toHaveProperty("processedDates");
   });
 });
+
+describe("GET /admin/debug/cam", () => {
+  it("returns 503 when CAM_* is not configured", async () => {
+    const camService = { fetch: mockFetch([new Response("<List></List>")]) } as unknown as Fetcher;
+    const res = await createApp().request(
+      "/admin/debug/cam",
+      {},
+      { ...env, CAM_DIGEST_USER: "", CAM_SERVICE: camService },
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("returns the raw SD-card root response alongside the parsed dates", async () => {
+    const camService = {
+      fetch: mockFetch([new Response(`<List><Dir name="20260101"/></List>`, { status: 200 })]),
+    } as unknown as Fetcher;
+    const res = await createApp().request("/admin/debug/cam", {}, { ...env, CAM_SERVICE: camService });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe(200);
+    expect(body.body).toBe(`<List><Dir name="20260101"/></List>`);
+    expect(body.parsedDates).toEqual(["20260101"]);
+    expect(body).toHaveProperty("url");
+  });
+});

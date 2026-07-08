@@ -127,6 +127,28 @@ describe("CamClient digest auth retry", () => {
   });
 });
 
+describe("CamClient.debugListRoot", () => {
+  it("returns the raw status/body alongside the same url listDates() would hit", async () => {
+    const { fn, calls } = mockFetch([new Response(`<List><Dir name="20260101"/></List>`, { status: 200 })]);
+    const client = new CamClient(testConfig(), fn);
+    const result = await client.debugListRoot();
+    expect(result).toEqual({
+      url: "https://cam.internal/sd/cam1/Event",
+      status: 200,
+      body: `<List><Dir name="20260101"/></List>`,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not throw on a non-ok status — returns it for inspection instead", async () => {
+    const { fn } = mockFetch([new Response("not found", { status: 404 })]);
+    const client = new CamClient(testConfig(), fn);
+    const result = await client.debugListRoot();
+    expect(result.status).toBe(404);
+    expect(result.body).toBe("not found");
+  });
+});
+
 describe("CamClient.download", () => {
   it("selects jpg/mp4 CGI by extension and returns bytes for octet-stream", async () => {
     const responses = [

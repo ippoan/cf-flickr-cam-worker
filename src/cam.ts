@@ -82,6 +82,17 @@ export class CamClient {
     return parseDirNames(await this.fetchXml(url));
   }
 
+  /** デバッグ用: SD カードルート一覧の生レスポンス (status/body) をそのまま返す。
+   * `listDates()` が 0 件を返した時、カメラ側が本当に空応答なのか
+   * `parseDirNames` が想定外のフォーマットを黙って 0 件にパースしているのかを
+   * 切り分けるために使う (Refs #19)。 */
+  async debugListRoot(): Promise<{ url: string; status: number; body: string }> {
+    const url = `${this.config.sdcardCgi}${this.config.machineName}${EVENT_DIR}`;
+    const response = await this.fetchCam(url);
+    const body = await response.text().catch(() => "");
+    return { url, status: response.status, body };
+  }
+
   /** 指定日付の時間ディレクトリ一覧 */
   async listHours(date: string): Promise<string[]> {
     const url = `${this.config.sdcardCgi}${this.config.machineName}${EVENT_DIR}/${date}`;
