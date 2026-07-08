@@ -24,6 +24,10 @@
   (`OAUTH_STATE_SECRET`、`src/oauthState.ts`) に一時保存 (2026-07-08 KVから移行)。
 - **CI は single-env (staging = prod)**。初回は D1/R2/VPC/Secrets の setup
   (README) が先、`FLICKR_ACCESS_TOKEN_JSON` は OAuth 完了後の2段階投入。
+- **`workers_dev: false` で完全非公開**。到達経路は `ippoan/auth-worker` の
+  `/cf-flickr-cam-worker-proxy/*` (service binding、CF Access 保護) のみ
+  (Refs #3, #4)。routes.tsx 側のパスは変更不要 (proxy が prefix を剥がして
+  forward する)。
 
 ## ビルド / テスト
 

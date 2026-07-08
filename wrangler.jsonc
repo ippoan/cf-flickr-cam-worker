@@ -19,8 +19,9 @@
 	"triggers": {
 		"crons": ["*/15 * * * *"]
 	},
-	// custom domain 未確定 (Refs #1) — 決まるまでは workers.dev で運用
-	"workers_dev": true,
+	// 完全非公開 (Refs #3, #4)。到達経路は auth-worker の
+	// `/cf-flickr-cam-worker-proxy/*` (service binding) のみ。
+	"workers_dev": false,
 	// カメラは Cloudflare Tunnel 越しの private network 上にあり、Workers VPC
 	// Services 経由で到達する (公開 URL は使わない、2026-07-08 方針転換)。
 	// **service_id は placeholder** — 初回セットアップで Cloudflare Tunnel + VPC
@@ -122,8 +123,10 @@
 		// "後" に、この binding を追加して再 deploy すること (README 参照)。
 	],
 	"vars": {
-		// Flickr OAuth callback URL (非 secret)。custom domain 確定後に更新
-		"FLICKR_CALLBACK_URL": "https://cf-flickr-cam-worker.workers.dev/oauth/callback"
+		// Flickr OAuth callback URL (非 secret)。本 worker は workers_dev: false
+		// で完全非公開なため、auth-worker の path-scoped proxy 経由の URL を指す
+		// (Refs #3, #4、ippoan/auth-worker#352)。
+		"FLICKR_CALLBACK_URL": "https://auth.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback"
 	}
 	// `secrets.required` は宣言しない — `secrets_store_secrets[].secret_name` が
 	// 自動的に検証対象になる (ci-workflows `secret-verify-gcp.yml` 参照)。
