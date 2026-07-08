@@ -8,7 +8,9 @@
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "d1:migrate:local": "wrangler d1 migrations apply cf-flickr-cam-worker-db --local",
+    "d1:migrate:prod": "wrangler d1 migrations apply cf-flickr-cam-worker-db --remote"
   },
   "dependencies": {
     "@ippoan/mcp-cf-workers": "dev",
