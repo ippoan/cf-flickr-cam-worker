@@ -126,7 +126,12 @@
 		// Flickr OAuth callback URL (非 secret)。本 worker は workers_dev: false
 		// で完全非公開なため、auth-worker の path-scoped proxy 経由の URL を指す
 		// (Refs #3, #4、ippoan/auth-worker#352)。
-		"FLICKR_CALLBACK_URL": "https://auth.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback"
+		//
+		// 【一時変更】#6 の "Flickr request_token failed" 原因調査のため、
+		// デバッグ期間限定で auth-staging.ippoan.org 経由に向けている
+		// (auth-staging は CF Access 全体 bypass のため認証不要で叩ける)。
+		// 原因判明後は上記の auth.ippoan.org (本番) URL に戻すこと (Refs #6)。
+		"FLICKR_CALLBACK_URL": "https://auth-staging.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback"
 	}
 	// `secrets.required` は宣言しない — `secrets_store_secrets[].secret_name` が
 	// 自動的に検証対象になる (ci-workflows `secret-verify-gcp.yml` 参照)。
