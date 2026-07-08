@@ -257,6 +257,28 @@ describe("POST /admin/sync", () => {
     expect(body).toHaveProperty("message");
     expect(body).toHaveProperty("processedDates");
   });
+
+  it("accepts a valid ?date=YYYYMMDD override and runs the sync", async () => {
+    const camService = { fetch: mockFetch([new Response("<List></List>")]) } as unknown as Fetcher;
+    const res = await createApp().request(
+      "/admin/sync?date=20260101",
+      { method: "POST" },
+      { ...env, CAM_SERVICE: camService },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("processedDates");
+  });
+
+  it("rejects a malformed ?date with 400 before touching the camera", async () => {
+    const camService = { fetch: mockFetch([new Response("<List></List>")]) } as unknown as Fetcher;
+    const res = await createApp().request(
+      "/admin/sync?date=2026-01-01",
+      { method: "POST" },
+      { ...env, CAM_SERVICE: camService },
+    );
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("GET /admin/debug/cam", () => {

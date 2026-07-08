@@ -132,7 +132,10 @@
 		"FLICKR_CALLBACK_URL": "https://auth.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback",
 		// カメラの CGI パス (host 以降)。カメラのベンダー仕様であり秘匿性が無いため
 		// plain var (host は CAM_HOST secret、Refs #17)。
-		"CAM_SDCARD_CGI_PATH": "/snapshot.cgi?storage=sd&file=/",
+		// SD 一覧は snapshot.cgi (jpg 取得用) ではなく専用の sdcard.cgi を使う
+		// — 移植元 ippoan/rust-flickr が Cloud Run で使っていた実 CGI と一致させる
+		// (#17 の CAM_HOST 分割時に jpg 用を流用していた誤りを修正、Refs #21)。
+		"CAM_SDCARD_CGI_PATH": "/camera-cgi/admin/sdcard.cgi?action=generate&pagesize=1000&pagenum=1&dir=",
 		"CAM_MP4_CGI_PATH": "/playmp4.cgi?storage=sd&file=/",
 		"CAM_JPG_CGI_PATH": "/snapshot.cgi?storage=sd&file=/"
 	}

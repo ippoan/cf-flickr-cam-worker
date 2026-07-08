@@ -2,13 +2,31 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listByDate, listDates, upsertCamFile } from "../src/d1";
-import { camConfigFrom, flickrConfigFrom, runScheduled, todayUtc } from "../src/scheduled";
+import { camConfigFrom, flickrConfigFrom, runScheduled, todayUtc, yesterdayUtc } from "../src/scheduled";
 
 // runScheduled は既定で env.CAM_SERVICE.fetch を使うが、vitest-pool-workers は
 // vpc_services binding を未対応 (env.CAM_SERVICE は undefined) なので、全テスト
 // で camFetch を明示的に DI する。
 function noopCamFetch(): typeof fetch {
   return (async () => new Response("<List></List>")) as unknown as typeof fetch;
+}
+
+/** date -> [hours] の固定テーブルから SD 応答を返す fetch mock (各 hour には
+ * `Event<date>_000000.jpg` が 1 件ある前提)。開始位置テスト用。 */
+function camFetchFromDates(dates: string[]): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (/\/Event$/.test(url)) {
+      return new Response(`<List>${dates.map((d) => `<Dir name="${d}"/>`).join("")}</List>`);
+    }
+    const dateMatch = url.match(/\/Event\/(\d{8})$/);
+    if (dateMatch) return new Response(`<List><Dir name="000000"/></List>`);
+    const fileMatch = url.match(/\/Event\/(\d{8})\/\d{6}$/);
+    if (fileMatch) {
+      return new Response(`<List><File><Name>Event${fileMatch[1]}_000000.jpg</Name></File></List>`);
+    }
+    return new Response("<List></List>");
+  }) as unknown as typeof fetch;
 }
 
 beforeEach(async () => {
@@ -20,6 +38,16 @@ beforeEach(async () => {
 describe("todayUtc", () => {
   it("formats as YYYYMMDD in UTC", () => {
     expect(todayUtc(Date.parse("2026-07-08T12:34:56Z"))).toBe("20260708");
+  });
+});
+
+describe("yesterdayUtc", () => {
+  it("formats the previous day as YYYYMMDD in UTC", () => {
+    expect(yesterdayUtc(Date.parse("2026-07-08T00:30:00Z"))).toBe("20260707");
+  });
+
+  it("crosses month boundaries", () => {
+    expect(yesterdayUtc(Date.parse("2026-07-01T12:00:00Z"))).toBe("20260630");
   });
 });
 
@@ -64,6 +92,27 @@ describe("runScheduled", () => {
     await runScheduled(env, Date.parse("2026-01-01T00:00:00Z"), camFetch);
     const rows = await listByDate(env.CAM_DB, "20260101");
     expect(rows.map((r) => r.name)).toEqual(["Event20260101_000000.jpg"]);
+  });
+
+  it("starts from yesterday (not the SD's earliest date) when cam_files is empty", async () => {
+    // SD には一昨日・昨日・今日がある。D1 が空なので昨日から取り込み、一昨日は除外。
+    const camFetch = camFetchFromDates(["20260706", "20260707", "20260708"]);
+    const result = await runScheduled(env, Date.parse("2026-07-08T12:00:00Z"), camFetch);
+    expect(result?.processedDates).toBe(2); // 20260707, 20260708 のみ
+  });
+
+  it("resumes from the D1 last position instead of yesterday when cam_files has rows", async () => {
+    // D1 に一昨日の行がある → last position (一昨日) から継続。昨日 default は使わない。
+    await upsertCamFile(env.CAM_DB, "Event20260706_000000.jpg", "20260706", "000000", "jpg", 1000);
+    const camFetch = camFetchFromDates(["20260706", "20260707", "20260708"]);
+    const result = await runScheduled(env, Date.parse("2026-07-08T12:00:00Z"), camFetch);
+    expect(result?.processedDates).toBe(3); // 一昨日から全部
+  });
+
+  it("honors an explicit startDateOverride regardless of D1/yesterday", async () => {
+    const camFetch = camFetchFromDates(["20260706", "20260707", "20260708"]);
+    const result = await runScheduled(env, Date.parse("2026-07-08T12:00:00Z"), camFetch, "20260706");
+    expect(result?.processedDates).toBe(3); // 指定日 (一昨日) から全部
   });
 
   it("archives dates other than today, but keeps today's date in D1", async () => {

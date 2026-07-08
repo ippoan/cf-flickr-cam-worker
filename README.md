@@ -51,7 +51,11 @@ Flickr / 運用者ブラウザ
           → POST /admin/sync カメラ scrape → Flickr upload を手動実行 (テスト用、
                               CF ダッシュボードの Trigger scheduled event が
                               VPC Services/Secrets Store 未対応でグレーアウト
-                              するための代替、Refs #15)。StatusPage にボタンあり
+                              するための代替、Refs #15)。StatusPage にボタンあり。
+                              `?date=YYYYMMDD` で D1 の最終位置を無視して任意日
+                              から取り込む (Refs #21)。未指定は D1 最終位置 →
+                              無ければ昨日から (初回の SD 全期間一斉取込を回避)
+          → GET /admin/debug/cam  SD ルート一覧の生レスポンス確認 (Refs #19)
 ```
 
 ## 現在の実装状態

@@ -66,6 +66,13 @@ export function todayUtc(nowMs: number): string {
   return new Date(nowMs).toISOString().slice(0, 10).replace(/-/g, "");
 }
 
+/** `YYYYMMDD` (UTC) の前日。初回 (D1 に cam_files が無い) 時の scrape 開始位置に
+ * 使う — SD 全期間 (十数日分) を一斉に取り込み/アップロードするのを避け、昨日分
+ * から始める (Refs #21)。 */
+export function yesterdayUtc(nowMs: number): string {
+  return todayUtc(nowMs - 86_400_000);
+}
+
 export { camConfigFrom, flickrConfigFrom };
 
 /**
@@ -75,11 +82,16 @@ export { camConfigFrom, flickrConfigFrom };
  *
  * 戻り値は `SyncResult` (cam scrape → upload の結果)。CAM_* 未設定でスキップした
  * 場合は `null` (`POST /admin/sync` が手動実行結果を表示するために使う、Refs #15)。
+ *
+ * `startDateOverride` (`YYYYMMDD`) を渡すと D1 の最終位置を無視してその日から
+ * 取り込む (任意日を指定する手動エンドポイント用、Refs #21)。呼び出し元で書式
+ * 検証済みの値を渡すこと。
  */
 export async function runScheduled(
   env: Env,
   nowMs: number,
   camFetch: typeof fetch = env.CAM_SERVICE.fetch.bind(env.CAM_SERVICE) as typeof fetch,
+  startDateOverride?: string,
 ): Promise<SyncResult | null> {
   const camConfig = await camConfigFrom(env);
   if (!camConfig) {
@@ -93,8 +105,17 @@ export async function runScheduled(
   const accessToken = getAccessToken(await resolveSecret(env.FLICKR_ACCESS_TOKEN_JSON));
 
   const now = Math.floor(nowMs / 1000);
-  const lastPosition = await lastCamFile(env.CAM_DB);
-  const result = await syncCamFiles(env.CAM_DB, cam, flickr, accessToken, lastPosition, UPLOAD_LIMIT, now);
+  // scrape 開始位置の優先順位: (1) 明示指定 (任意日エンドポイント) →
+  // (2) D1 の最終位置 (通常運用の継続) → (3) どちらも無ければ「昨日」
+  // (初回に SD 全期間を一斉取り込みしない、Refs #21)。開始位置以降しか D1 へ
+  // UPSERT しないため、Flickr upload も自然に開始日以降だけに限定される。
+  let startPosition = await lastCamFile(env.CAM_DB);
+  if (startDateOverride) {
+    startPosition = { date: startDateOverride, hour: "000000" };
+  } else if (!startPosition) {
+    startPosition = { date: yesterdayUtc(nowMs), hour: "000000" };
+  }
+  const result = await syncCamFiles(env.CAM_DB, cam, flickr, accessToken, startPosition, UPLOAD_LIMIT, now);
   console.log(result.message);
 
   // 当日 (UTC) 以外の日付は確定済みとみなしアーカイブする。当日分は cron が
