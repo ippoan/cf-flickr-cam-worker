@@ -1,0 +1,35 @@
+name: branch-protection
+
+# ci-workflows の reusable `branch-protection.yml` を caller として呼ぶ。
+# `push: main` のたびに main の protection を declarative に上書きする。
+# (ippoan/cf-flickr-proxy と同パターン)
+#
+# 要 secret: `TAG_RELEASE_PAT` (fine-grained PAT で対象 repo の
+# "Administration: write" + "Contents: read" 権限を持つもの)。
+# `GITHUB_TOKEN` の `administration` scope は存在しないため代用不可。
+#
+# 新規 repo の bootstrap 直後は main への push (= このファイルが merge される
+# タイミング) が無いと protection が一度も適用されない。最初の merge で
+# 発火し、以後の push で declarative に維持される。
+#
+# trigger は `push: main` のみ (workflow_dispatch は置かない — admin PAT を
+# 受ける job を任意 ref から発火可能にしないため)。
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    uses: ippoan/ci-workflows/.github/workflows/branch-protection.yml@main
+    secrets:
+      TAG_RELEASE_PAT: ${{ secrets.TAG_RELEASE_PAT }}
+    with:
+      branch: main
+      required_checks: |
+        ci / Type Check
+        ci / Vitest + Coverage
+        ci / PR Limit Check
