@@ -22,12 +22,12 @@
   `FLICKR_ACCESS_TOKEN_JSON` を手動投入する用途)。
 - **Flickr token は KV でなく secret**。request_token_secret は署名付き cookie
   (`OAUTH_STATE_SECRET`、`src/oauthState.ts`) に一時保存 (2026-07-08 KVから移行)。
-- **CI は single-env (staging = prod)**。初回は D1/R2/VPC/Secrets の setup
-  (README) が先、`FLICKR_ACCESS_TOKEN_JSON` は OAuth 完了後の2段階投入。
-- **`workers_dev: false` で完全非公開**。到達経路は `ippoan/auth-worker` の
-  `/cf-flickr-cam-worker-proxy/*` (service binding、CF Access 保護) のみ
-  (Refs #3, #4)。routes.tsx 側のパスは変更不要 (proxy が prefix を剥がして
-  forward する)。
+- **CI は single-env (staging = prod)**。**PR (non-draft) を出せば `wrangler
+  deploy` が走り staging=prod に即反映される — 動作確認は merge を待たず PR
+  時点の staging (`auth-staging.ippoan.org` 経由) で行う。** 初回は
+  D1/R2/VPC/Secrets の setup (README) が先、token は OAuth 後の2段階投入。
+- **`workers_dev: false` で完全非公開**。到達は `auth-worker` の
+  `/cf-flickr-cam-worker-proxy/*` (service binding + CF Access) のみ (Refs #3,#4)。
 
 ## ビルド / テスト
 
