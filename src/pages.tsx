@@ -22,6 +22,8 @@ const Layout: FC<{ title: string; children?: unknown }> = ({ title, children }) 
         .badge-zombie { background: #e5e7eb; color: #4b5563; }
         .button { display: inline-block; background: #0ea5e9; color: #fff; padding: 0.5rem 1rem; border-radius: 0.4rem; text-decoration: none; border: none; font-size: 1rem; cursor: pointer; }
         nav a { margin-right: 1rem; }
+        .thumb { max-width: 160px; height: auto; border-radius: 4px; display: block; }
+        .thumb-cell { width: 170px; }
       `}</style>
     </head>
     <body>
@@ -151,6 +153,7 @@ export const ImagesPage: FC<{
         <table>
           <thead>
             <tr>
+              <th>プレビュー</th>
               <th>時刻</th>
               <th>ファイル名</th>
               <th>状態</th>
@@ -160,15 +163,25 @@ export const ImagesPage: FC<{
           <tbody>
             {files.map((f) => {
               const badge = fileBadge(f.flickrId);
+              // 実写真 (数値 flickr_id) のみ /images/photo 経由でサムネイル表示。
+              // SD_ZOMBIE / 未アップロードは画像が無い。
+              const uploaded = f.flickrId !== null && /^\d+$/.test(f.flickrId);
               return (
                 <tr>
+                  <td class="thumb-cell">
+                    {uploaded ? (
+                      <a href={`/images/photo/${f.flickrId}?size=b`} target="_blank" rel="noreferrer">
+                        <img class="thumb" src={`/images/photo/${f.flickrId}?size=m`} alt={f.name} loading="lazy" />
+                      </a>
+                    ) : null}
+                  </td>
                   <td>{f.hour}</td>
                   <td>{f.name}</td>
                   <td>
                     <span class={`badge ${badge.className}`}>{badge.label}</span>
                   </td>
                   <td>
-                    {f.flickrId && f.flickrId !== "SD_ZOMBIE" && userNsid ? (
+                    {uploaded && userNsid ? (
                       <a href={`https://www.flickr.com/photos/${userNsid}/${f.flickrId}`} target="_blank" rel="noreferrer">
                         Flickr で見る
                       </a>

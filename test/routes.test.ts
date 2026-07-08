@@ -232,6 +232,27 @@ describe("GET /images (image browsing page)", () => {
     const html = await res.text();
     expect(html).toContain("https://www.flickr.com/photos/12345/987654");
   });
+
+  it("renders an inline thumbnail via /images/photo for uploaded files", async () => {
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
+    await setCamFileFlickrId(env.CAM_DB, "a.jpg", "987654");
+
+    const res = await createApp().request("/images?date=20260101", {}, env);
+    const html = await res.text();
+    expect(html).toContain(`src="/images/photo/987654?size=m"`);
+    expect(html).toContain(`href="/images/photo/987654?size=b"`);
+  });
+
+  it("does not render a thumbnail for SD_ZOMBIE (no real photo)", async () => {
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await upsertCamFile(env.CAM_DB, "z.jpg", "20260101", "000000", "jpg", 1000);
+    await setCamFileFlickrId(env.CAM_DB, "z.jpg", "SD_ZOMBIE");
+
+    const res = await createApp().request("/images?date=20260101", {}, env);
+    const html = await res.text();
+    expect(html).not.toContain("/images/photo/SD_ZOMBIE");
+  });
 });
 
 describe("POST /admin/sync", () => {
@@ -303,6 +324,38 @@ describe("GET /admin/debug/cam", () => {
     expect(body.body).toBe(`<List><Dir name="20260101"/></List>`);
     expect(body.parsedDates).toEqual(["20260101"]);
     expect(body).toHaveProperty("url");
+  });
+});
+
+describe("GET /images/list", () => {
+  it("returns availableDates and files as JSON", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    const res = await createApp().request("/images/list?date=20260101", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { date: string; availableDates: string[]; files: unknown[] };
+    expect(body.date).toBe("20260101");
+    expect(body.availableDates).toContain("20260101");
+    expect(body.files).toHaveLength(1);
+  });
+
+  it("attaches photoUrl to uploaded photos and null otherwise", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    await upsertCamFile(env.CAM_DB, "Event20260101_010000.jpg", "20260101", "010000", "jpg", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_000000.jpg", "12345");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_010000.jpg", "SD_ZOMBIE");
+
+    const res = await createApp().request("/images/list?date=20260101", {}, env);
+    const body = (await res.json()) as { files: { name: string; flickrId: string | null; photoUrl: string | null }[] };
+    const uploaded = body.files.find((f) => f.name === "Event20260101_000000.jpg");
+    const zombie = body.files.find((f) => f.name === "Event20260101_010000.jpg");
+    expect(uploaded?.photoUrl).toBe("/images/photo/12345");
+    expect(zombie?.photoUrl).toBeNull(); // SD_ZOMBIE は実写真ではない
+  });
+
+  it("rejects a malformed date with 400", async () => {
+    const res = await createApp().request("/images/list?date=2026-01-01", {}, env);
+    expect(res.status).toBe(400);
   });
 });
 

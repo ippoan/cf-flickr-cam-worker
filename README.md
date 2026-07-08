@@ -47,7 +47,10 @@ Flickr / 運用者ブラウザ
                               署名付き HttpOnly cookie に一時保存)
           → GET /oauth/callback  認可完了 → access token を一度だけ表示
                               (secret-inject で手動投入するため)
-          → GET /images      画像確認 (日付ごとのアップロード状況 + Flickr へのリンク)
+          → GET /images      画像確認 (日付ごとのアップロード状況 + インライン
+                              サムネイル + Flickr へのリンク、Refs #26)
+          → GET /images/list JSON 版一覧 (`?date=YYYYMMDD`、flickr_id/photoUrl
+                              付き、Refs #26)
           → GET /images/photo/:flickrId  D1 記録済み写真を Flickr CDN に 302
                               リダイレクト (`?size=m|z|c|b`、既定 b=1024。
                               `<img src>` で使える、Refs #24)
