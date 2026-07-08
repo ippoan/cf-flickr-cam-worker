@@ -233,3 +233,28 @@ describe("GET /images (image browsing page)", () => {
     expect(html).toContain("https://www.flickr.com/photos/12345/987654");
   });
 });
+
+describe("POST /admin/sync", () => {
+  it("returns 503 when CAM_* is not configured", async () => {
+    const camService = { fetch: mockFetch([new Response("<List></List>")]) } as unknown as Fetcher;
+    const res = await createApp().request(
+      "/admin/sync",
+      { method: "POST" },
+      { ...env, CAM_DIGEST_USER: "", CAM_SERVICE: camService },
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("runs the scrape/upload and returns the sync result", async () => {
+    const camService = { fetch: mockFetch([new Response("<List></List>")]) } as unknown as Fetcher;
+    const res = await createApp().request(
+      "/admin/sync",
+      { method: "POST" },
+      { ...env, CAM_SERVICE: camService },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("message");
+    expect(body).toHaveProperty("processedDates");
+  });
+});

@@ -20,7 +20,7 @@ const Layout: FC<{ title: string; children?: unknown }> = ({ title, children }) 
         .badge-ok { background: #dcfce7; color: #166534; }
         .badge-pending { background: #fef9c3; color: #854d0e; }
         .badge-zombie { background: #e5e7eb; color: #4b5563; }
-        a.button { display: inline-block; background: #0ea5e9; color: #fff; padding: 0.5rem 1rem; border-radius: 0.4rem; text-decoration: none; }
+        .button { display: inline-block; background: #0ea5e9; color: #fff; padding: 0.5rem 1rem; border-radius: 0.4rem; text-decoration: none; border: none; font-size: 1rem; cursor: pointer; }
         nav a { margin-right: 1rem; }
       `}</style>
     </head>
@@ -53,6 +53,11 @@ export const StatusPage: FC<{
         </a>
       </p>
     )}
+    <form method="post" action="/admin/sync" onsubmit="return confirm('今すぐカメラの取り込みを実行しますか?');">
+      <button class="button" type="submit">
+        今すぐ同期を実行
+      </button>
+    </form>
     <h2>直近の同期状況</h2>
     {days.length === 0 ? (
       <p>まだ同期データがありません。</p>

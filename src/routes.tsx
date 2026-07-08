@@ -1,8 +1,11 @@
 // OAuth1.0a 認可フロー (JSON API + ブラウザ用ページ) + 状況/画像確認ページ
 // (Refs ippoan/cf-flickr-cam-worker#1)。
 //
-// カメラ scrape (cron) は `scheduled.ts` が持つ。ここは HTTP 経由の人間向け UI と
-// Flickr からの OAuth callback のみを扱う。
+// カメラ scrape は cron (`scheduled.ts`) が定期実行するのに加え、`POST
+// /admin/sync` から手動実行もできる (Refs #15 — CF ダッシュボードの Quick Edit
+// 「Trigger scheduled event」が Workers VPC Services / Secrets Store binding
+// 未対応でグレーアウトするため)。ここは HTTP 経由の人間向け UI と Flickr からの
+// OAuth callback を扱う。
 
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -16,6 +19,7 @@ import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
 import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
 import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
+import { runScheduled } from "./scheduled";
 import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
@@ -134,6 +138,14 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     return c.html(
       <OAuthCompletePage username={accessToken.username} userNsid={accessToken.userNsid} tokenJson={tokenJson} />,
     );
+  });
+
+  // ---- 運用者向け admin (認証は境界の CF Access に委譲、Refs #15) ----
+
+  app.post("/admin/sync", async (c) => {
+    const result = await runScheduled(c.env, Date.now());
+    if (!result) return c.json({ error: "not configured", message: "CAM_* is not set" }, 503);
+    return c.json(result);
   });
 
   app.get("/", async (c) => {
