@@ -42,8 +42,13 @@ export const StatusPage: FC<{
   username: string | null;
   days: DayStats[];
   prefix: string;
-}> = ({ authorized, username, days, prefix }) => (
+  deployedAt: string;
+  version: string;
+}> = ({ authorized, username, days, prefix, deployedAt, version }) => (
   <Layout title="cf-flickr-cam-worker" prefix={prefix}>
+    <p style="color:#6b7280; font-size:0.8rem; margin-top:-0.5rem;">
+      deploy: {deployedAt} (version {version})
+    </p>
     {authorized ? (
       <p>
         Flickr に接続済み: <strong>{username}</strong>

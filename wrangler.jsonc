@@ -14,6 +14,11 @@
 	"observability": {
 		"enabled": true
 	},
+	// deploy ごとに `{ id, tag, timestamp }` が更新される version metadata。
+	// status ページに稼働中の version/deploy 時刻を出し、反映確認に使う (Refs #32)。
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA"
+	},
 	// カメラ scrape ループ。1 回あたりの処理量は upload_limit で抑えるが、
 	// SD 巡回自体の subrequest 数はカメラの日付/時間量に比例するため長めに取る。
 	"triggers": {
