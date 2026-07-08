@@ -89,6 +89,21 @@ export async function setCamFileFlickrId(db: D1Database, name: string, flickrId:
   await db.prepare("UPDATE cam_files SET flickr_id = ?1 WHERE name = ?2").bind(flickrId, name).run();
 }
 
+/** flickr_id (アップロード済み写真の Flickr photo id) で 1 行引く。任意の
+ * photo_id への画像リダイレクトを D1 に実在する写真だけに限定するために使う
+ * (Refs #24)。SD_ZOMBIE sentinel も flickr_id 列に入るが、数値でない (`SD_ZOMBIE`)
+ * ため呼び出し側の数値検証で弾かれる。 */
+export async function camFileByFlickrId(db: D1Database, flickrId: string): Promise<CamFileRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT name, date, hour, type, flickr_id AS flickrId, created_at AS createdAt
+       FROM cam_files WHERE flickr_id = ?1 LIMIT 1`,
+    )
+    .bind(flickrId)
+    .first<CamFileRow>();
+  return row ?? null;
+}
+
 /** 日次アーカイブ (R2 flush) 対象の全行 (name 昇順) */
 export async function listByDate(db: D1Database, date: string): Promise<CamFileRow[]> {
   const { results } = await db

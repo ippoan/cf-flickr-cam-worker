@@ -14,7 +14,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getArchive, listArchivedDates } from "./archive";
 import { CamClient, parseDirNames } from "./cam";
 import type { CamFileRow } from "./d1";
-import { dayStats, listByDate, listDates } from "./d1";
+import { camFileByFlickrId, dayStats, listByDate, listDates } from "./d1";
 import type { Env } from "./env";
 import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
@@ -25,6 +25,10 @@ import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
 const OAUTH_STATE_COOKIE = "oauth_state";
+
+// Flickr static CDN のサイズサフィックス allowlist (m=500, z=640, c=800,
+// b=1024)。任意サフィックスを URL に通さないため固定 (Refs #24)。
+const FLICKR_STATIC_SIZES = new Set(["m", "z", "c", "b"]);
 
 async function flickrClientFrom(env: Env, fetchImpl: typeof fetch): Promise<FlickrClient | null> {
   const consumerKey = await resolveSecret(env.FLICKR_CONSUMER_KEY);
@@ -198,6 +202,39 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     return c.html(
       <ImagesPage date={date} availableDates={availableDates} files={files} userNsid={token?.userNsid ?? null} />,
     );
+  });
+
+  // D1 に記録済みの写真だけを対象に Flickr の画像 CDN へ 302 リダイレクトする
+  // (`<img src="/images/photo/{id}">` でそのまま使える)。任意 photo_id への
+  // オープンリダイレクトを防ぐため D1 に実在する flickr_id に限定し、画像本体は
+  // worker に持たず CDN 直リンクに委ねる (Refs #24、CLAUDE.md「画像バイナリを
+  // 持たない」方針)。
+  app.get("/images/photo/:flickrId", async (c) => {
+    const flickrId = c.req.param("flickrId");
+    if (!/^\d+$/.test(flickrId)) {
+      return c.json({ error: "invalid id", message: "flickrId must be numeric" }, 400);
+    }
+    const size = c.req.query("size") ?? "b";
+    if (!FLICKR_STATIC_SIZES.has(size)) {
+      return c.json({ error: "invalid size", message: "size must be one of m,z,c,b" }, 400);
+    }
+    if (!c.env.CAM_DB || !(await camFileByFlickrId(c.env.CAM_DB, flickrId))) {
+      return c.json({ error: "not found", message: "unknown flickr photo" }, 404);
+    }
+    const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
+    if (!token) return c.json({ error: "not configured", message: "not authorized with Flickr" }, 503);
+    const client = await flickrClientFrom(c.env, fetchImpl);
+    if (!client) return c.json({ error: "not configured", message: "FLICKR_* is not set" }, 503);
+
+    let info;
+    try {
+      info = await client.photosGetInfo(flickrId, token.token, token.secret);
+    } catch (e) {
+      // secret は含めない (Flickr の HTTP ステータス/ボディのみ、Refs #6 と同方針)
+      console.error("images/photo: getInfo failed", e instanceof Error ? e.message : String(e));
+      return c.json({ error: "upstream", message: "flickr getInfo failed" }, 502);
+    }
+    return c.redirect(`https://live.staticflickr.com/${info.server}/${info.id}_${info.secret}_${size}.jpg`, 302);
   });
 
   return app;

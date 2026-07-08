@@ -305,3 +305,79 @@ describe("GET /admin/debug/cam", () => {
     expect(body).toHaveProperty("url");
   });
 });
+
+describe("GET /images/photo/:flickrId", () => {
+  async function seedUploaded(flickrId: string) {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_000000.jpg", flickrId);
+  }
+
+  it("400s for a non-numeric id", async () => {
+    const res = await createApp().request("/images/photo/abc", {}, env);
+    expect(res.status).toBe(400);
+  });
+
+  it("400s for an unknown size", async () => {
+    await seedUploaded("12345");
+    const res = await createApp().request(
+      "/images/photo/12345?size=huge",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("404s when the id is not a known (D1-recorded) photo", async () => {
+    const res = await createApp().request(
+      "/images/photo/999",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("503s when not authorized with Flickr", async () => {
+    await seedUploaded("12345");
+    const res = await createApp().request("/images/photo/12345", {}, env);
+    expect(res.status).toBe(503);
+  });
+
+  it("302-redirects to the Flickr static CDN url for a known photo (default size b)", async () => {
+    await seedUploaded("12345");
+    const fetchImpl = mockFetch([
+      new Response(JSON.stringify({ stat: "ok", photo: { id: "12345", server: "65535", secret: "abcdef" } })),
+    ]);
+    const res = await createApp(fetchImpl).request(
+      "/images/photo/12345",
+      { redirect: "manual" },
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://live.staticflickr.com/65535/12345_abcdef_b.jpg");
+  });
+
+  it("honors an explicit ?size=", async () => {
+    await seedUploaded("12345");
+    const fetchImpl = mockFetch([
+      new Response(JSON.stringify({ stat: "ok", photo: { id: "12345", server: "65535", secret: "abcdef" } })),
+    ]);
+    const res = await createApp(fetchImpl).request(
+      "/images/photo/12345?size=z",
+      { redirect: "manual" },
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.headers.get("location")).toBe("https://live.staticflickr.com/65535/12345_abcdef_z.jpg");
+  });
+
+  it("502s when the Flickr getInfo call fails", async () => {
+    await seedUploaded("12345");
+    const fetchImpl = mockFetch([new Response("boom", { status: 500 })]);
+    const res = await createApp(fetchImpl).request(
+      "/images/photo/12345",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(502);
+  });
+});
