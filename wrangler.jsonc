@@ -118,11 +118,13 @@
 		},
 		// access token 本体。OAuth 完了後に GCP Secret Manager
 		// (`FLICKR_ACCESS_TOKEN_JSON`) へ投入済みの値を `sync_from_gcp` で
-		// この CF Secrets Store secret にミラーした (2026-07-08、Refs #3)。
+		// 同名のまま CF Secrets Store secret にミラーした (secret-verify-gcp.yml
+		// が secret_name をそのまま GCP secret 名として検証するため、他の
+		// binding と同様 GCP/CF で同名にする、2026-07-08、Refs #3)。
 		{
 			"binding": "FLICKR_ACCESS_TOKEN_JSON",
 			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
-			"secret_name": "cf-flickr-cam-worker-flickr-access-token-json"
+			"secret_name": "FLICKR_ACCESS_TOKEN_JSON"
 		}
 	],
 	"vars": {
