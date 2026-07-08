@@ -19,9 +19,12 @@ export interface Env {
   CAM_DIGEST_USER: SecretBinding;
   CAM_DIGEST_PASS: SecretBinding;
   CAM_MACHINE_NAME: SecretBinding;
-  CAM_SDCARD_CGI: SecretBinding;
-  CAM_MP4_CGI: SecretBinding;
-  CAM_JPG_CGI: SecretBinding;
+  // カメラの内部 IP のみ secret 化 (rust-flickr-staging 廃止後に導入、Refs #17)。
+  // CGI パス (下記 3 つ) はカメラのベンダー仕様で秘匿性が無いため plain var。
+  CAM_HOST: SecretBinding;
+  CAM_SDCARD_CGI_PATH: string;
+  CAM_MP4_CGI_PATH: string;
+  CAM_JPG_CGI_PATH: string;
   CAM_CF_ACCESS_CLIENT_ID?: string;
   CAM_CF_ACCESS_CLIENT_SECRET?: string;
   // cam_files 相当の当日分メタデータ (状態管理の主体、Refs ohishi-exp/ohishi-logi#1)

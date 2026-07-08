@@ -19,24 +19,34 @@ import { getAccessToken } from "./tokens";
 const UPLOAD_LIMIT = 50;
 
 async function camConfigFrom(env: Env): Promise<CamConfig | null> {
-  const [digestUser, digestPass, machineName, sdcardCgi, mp4Cgi, jpgCgi] = await Promise.all([
+  const [digestUser, digestPass, machineName, camHost] = await Promise.all([
     resolveSecret(env.CAM_DIGEST_USER),
     resolveSecret(env.CAM_DIGEST_PASS),
     resolveSecret(env.CAM_MACHINE_NAME),
-    resolveSecret(env.CAM_SDCARD_CGI),
-    resolveSecret(env.CAM_MP4_CGI),
-    resolveSecret(env.CAM_JPG_CGI),
+    resolveSecret(env.CAM_HOST),
   ]);
-  if (!digestUser || !digestPass || !machineName || !sdcardCgi || !mp4Cgi || !jpgCgi) {
+  if (
+    !digestUser ||
+    !digestPass ||
+    !machineName ||
+    !camHost ||
+    !env.CAM_SDCARD_CGI_PATH ||
+    !env.CAM_MP4_CGI_PATH ||
+    !env.CAM_JPG_CGI_PATH
+  ) {
     return null;
   }
   return {
     digestUser,
     digestPass,
     machineName,
-    sdcardCgi,
-    mp4Cgi,
-    jpgCgi,
+    // Workers VPC Services は fetch() の URL host/scheme を実際のルーティングには
+    // 使わず Host ヘッダにのみ反映する (VPC Service 設定の target host:port が
+    // 常に使われる) が、公開ホスト名を渡すと VPC の外にエスケープする既知の罠が
+    // あるため internal な camHost (private IP) を使う (Refs #17)。
+    sdcardCgi: `http://${camHost}${env.CAM_SDCARD_CGI_PATH}`,
+    mp4Cgi: `http://${camHost}${env.CAM_MP4_CGI_PATH}`,
+    jpgCgi: `http://${camHost}${env.CAM_JPG_CGI_PATH}`,
     cfAccessClientId: env.CAM_CF_ACCESS_CLIENT_ID,
     cfAccessClientSecret: env.CAM_CF_ACCESS_CLIENT_SECRET,
   };
