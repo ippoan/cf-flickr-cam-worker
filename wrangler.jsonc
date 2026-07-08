@@ -1,0 +1,51 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "cf-flickr-cam-worker",
+	"account_id": "24b45709d060d957340180e995f0d373",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-05-01",
+	"observability": {
+		"enabled": true
+	},
+	// custom domain 未確定 (Refs #1) — 決まるまでは workers.dev で運用
+	"workers_dev": true,
+	// Flickr access token (永続) + OAuth handshake 中の request_token_secret
+	// (短命 TTL) を保存する。**id は placeholder — 初回セットアップで
+	// `npx wrangler kv namespace create FLICKR_TOKENS` を実行し、出力された
+	// id / preview_id に置き換えること (README「One-time setup」参照)。
+	"kv_namespaces": [
+		{
+			"binding": "FLICKR_TOKENS",
+			"id": "REPLACE_ME_RUN_WRANGLER_KV_NAMESPACE_CREATE",
+			"preview_id": "REPLACE_ME_RUN_WRANGLER_KV_NAMESPACE_CREATE"
+		}
+	],
+	// FLICKR_CONSUMER_KEY / FLICKR_CONSUMER_SECRET / FLICKR_CALLBACK_URL は
+	// `wrangler secret put` を使わず CF Secrets Store 経由で配布する
+	// (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の drift
+	// 検知対象に含めるため)。store_id は placeholder、README「One-time setup」
+	// で secret-inject skill を使って投入すること。
+	"secrets_store_secrets": [
+		{
+			"binding": "FLICKR_CONSUMER_KEY",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-flickr-consumer-key"
+		},
+		{
+			"binding": "FLICKR_CONSUMER_SECRET",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-flickr-consumer-secret"
+		}
+	],
+	"vars": {
+		// Flickr OAuth callback URL (非 secret)。custom domain 確定後に更新
+		"FLICKR_CALLBACK_URL": "https://cf-flickr-cam-worker.workers.dev/oauth/callback"
+	},
+	"secrets": {
+		"required": ["FLICKR_CONSUMER_KEY", "FLICKR_CONSUMER_SECRET"]
+	}
+}

@@ -1,0 +1,36 @@
+name: CI
+
+# ippoan/cf-flickr-proxy / security-notification-app と同じ frontend-ci.yml
+# caller pattern。single-env 運用 (staging = prod) — PR merge / tag push
+# どちらも root wrangler.jsonc の `wrangler deploy` を走らせる。
+#
+# 初回 deploy 前に KV namespace / Secrets Store の one-time setup が必要
+# (README「One-time setup」参照)。未完了のまま deploy が走ると
+# `kv_namespaces` / `secrets_store_secrets` の placeholder id で fail する。
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: read
+  id-token: write
+
+jobs:
+  ci:
+    uses: ippoan/ci-workflows/.github/workflows/frontend-ci.yml@main
+    with:
+      project_type: 'worker'
+      install_command: 'npm install'
+      typecheck_command: 'npx tsc --noEmit'
+      has_tests: true
+      test_command: 'npx vitest run --coverage'
+      # single-env: staging deploy と release deploy は同じ root config を叩く
+      deploy_staging_script: 'npx wrangler deploy'
+      deploy_release_script: 'npx wrangler deploy'
+    secrets: inherit
