@@ -180,6 +180,27 @@ describe("GET / (status page)", () => {
     expect(html).toContain("20260101");
   });
 
+  it("shows deploy time (JST) and version from version_metadata (#32)", async () => {
+    const res = await createApp().request(
+      "/",
+      {},
+      {
+        ...env,
+        CF_VERSION_METADATA: { id: "abcdef1234567890", tag: "", timestamp: "2026-07-08T03:15:00Z" },
+      },
+    );
+    const html = await res.text();
+    expect(html).toContain("2026-07-08 12:15:00 JST"); // UTC+9
+    expect(html).toContain("version abcdef12"); // id 先頭8桁
+  });
+
+  it("falls back to 'unknown' deploy info when version_metadata is absent (#32)", async () => {
+    const res = await createApp().request("/", {}, { ...env, CF_VERSION_METADATA: undefined });
+    const html = await res.text();
+    expect(html).toContain("deploy: unknown");
+    expect(html).toContain("version unknown");
+  });
+
   it("prefixes nav/form links with PUBLIC_PATH_PREFIX so they route through the proxy (#30)", async () => {
     const res = await createApp().request("/", {}, env);
     const html = await res.text();

@@ -30,6 +30,15 @@ const OAUTH_STATE_COOKIE = "oauth_state";
 // b=1024)。任意サフィックスを URL に通さないため固定 (Refs #24)。
 const FLICKR_STATIC_SIZES = new Set(["m", "z", "c", "b"]);
 
+/** version_metadata の ISO timestamp を JST の `YYYY-MM-DD HH:MM:SS JST` に整形。
+ * 未提供 (Miniflare 等) や不正値は "unknown" (Refs #32)。 */
+function formatJst(iso: string | undefined): string {
+  if (!iso) return "unknown";
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  return `${new Date(ms + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19)} JST`;
+}
+
 async function flickrClientFrom(env: Env, fetchImpl: typeof fetch): Promise<FlickrClient | null> {
   const consumerKey = await resolveSecret(env.FLICKR_CONSUMER_KEY);
   const consumerSecret = await resolveSecret(env.FLICKR_CONSUMER_SECRET);
@@ -177,12 +186,15 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   app.get("/", async (c) => {
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     const days = c.env.CAM_DB ? await dayStats(c.env.CAM_DB, 14) : [];
+    const meta = c.env.CF_VERSION_METADATA;
     return c.html(
       <StatusPage
         authorized={token !== null}
         username={token?.username ?? null}
         days={days}
         prefix={c.env.PUBLIC_PATH_PREFIX ?? ""}
+        deployedAt={formatJst(meta?.timestamp)}
+        version={meta?.id ? meta.id.slice(0, 8) : "unknown"}
       />,
     );
   });

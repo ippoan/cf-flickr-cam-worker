@@ -33,6 +33,10 @@ export interface Env {
   PUBLIC_PATH_PREFIX?: string;
   CAM_CF_ACCESS_CLIENT_ID?: string;
   CAM_CF_ACCESS_CLIENT_SECRET?: string;
+  // deploy ごとに更新される version metadata (id / tag / timestamp)。status
+  // ページに稼働 version と deploy 時刻を出す (Refs #32)。Miniflare (テスト)
+  // では未提供なので optional。
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
   // cam_files 相当の当日分メタデータ (状態管理の主体、Refs ohishi-exp/ohishi-logi#1)
   CAM_DB: D1Database;
   // 日次確定後の cam_files メタデータ JSON アーカイブ (画像バイナリは置かない)
