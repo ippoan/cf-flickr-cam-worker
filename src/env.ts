@@ -1,5 +1,9 @@
 export interface Env {
-  FLICKR_TOKENS: KVNamespace;
+  // OAuth 完了後に運用者が secret-inject skill で手動投入する access token
+  // (`{token,secret,userNsid,username}` の JSON、Refs #1 2026-07-08 KVから移行)
+  FLICKR_ACCESS_TOKEN_JSON?: string;
+  // OAuth ハンドシェイク中の request_token_secret を載せる署名付き cookie の署名鍵
+  OAUTH_STATE_SECRET: string;
   FLICKR_CONSUMER_KEY: string;
   FLICKR_CONSUMER_SECRET: string;
   FLICKR_CALLBACK_URL: string;

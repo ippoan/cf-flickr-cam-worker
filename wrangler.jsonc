@@ -53,17 +53,6 @@
 			"bucket_name": "cf-flickr-cam-worker-archive"
 		}
 	],
-	// Flickr access token (永続) + OAuth handshake 中の request_token_secret
-	// (短命 TTL) を保存する。**id は placeholder — 初回セットアップで
-	// `npx wrangler kv namespace create FLICKR_TOKENS` を実行し、出力された
-	// id / preview_id に置き換えること (README「One-time setup」参照)。
-	"kv_namespaces": [
-		{
-			"binding": "FLICKR_TOKENS",
-			"id": "REPLACE_ME_RUN_WRANGLER_KV_NAMESPACE_CREATE",
-			"preview_id": "REPLACE_ME_RUN_WRANGLER_KV_NAMESPACE_CREATE"
-		}
-	],
 	// FLICKR_* / CAM_* は `wrangler secret put` を使わず CF Secrets Store 経由で
 	// 配布する (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の
 	// drift 検知対象に含めるため)。CAM_* も含め全て secret 化するのは、本 repo が
@@ -110,7 +99,21 @@
 			"binding": "CAM_JPG_CGI",
 			"store_id": "REPLACE_ME",
 			"secret_name": "cf-flickr-cam-worker-cam-jpg-cgi"
+		},
+		// OAuth1.0a ハンドシェイク中の request_token_secret を載せる署名付き cookie
+		// の署名鍵 (`src/oauthState.ts`)。KV を廃止した代わりの一時ストレージ手段。
+		// openssl rand -hex 32 等でランダム生成して secret-inject skill で投入する
+		// (OAuth 完了を待たずに投入可能 — chicken-egg にならない)。
+		{
+			"binding": "OAUTH_STATE_SECRET",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-oauth-state-secret"
 		}
+		// FLICKR_ACCESS_TOKEN_JSON (access token 本体) はここに含めない —
+		// 初回 deploy 時点ではまだ存在しないため binding を足すと解決できず deploy
+		// が落ちる (chicken-egg)。`/oauth/start` で OAuth を完了させ、
+		// `/oauth/callback` が一度だけ表示する値を secret-inject skill で投入した
+		// "後" に、この binding を追加して再 deploy すること (README 参照)。
 	],
 	"vars": {
 		// Flickr OAuth callback URL (非 secret)。custom domain 確定後に更新
@@ -125,7 +128,8 @@
 			"CAM_MACHINE_NAME",
 			"CAM_SDCARD_CGI",
 			"CAM_MP4_CGI",
-			"CAM_JPG_CGI"
+			"CAM_JPG_CGI",
+			"OAUTH_STATE_SECRET"
 		]
 	}
 }

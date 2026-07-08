@@ -10,10 +10,20 @@ function mockFetch(responses: Response[]) {
   return (async () => responses[Math.min(i++, responses.length - 1)]) as unknown as typeof fetch;
 }
 
+/** Set-Cookie ヘッダ (`name=value; Path=/; ...`) から `name=value` だけを抜き出し、
+ * 次のリクエストの Cookie ヘッダとして使えるようにする。 */
+function cookieHeaderFrom(res: Response): string {
+  const setCookie = res.headers.get("set-cookie");
+  if (!setCookie) throw new Error("no set-cookie header on response");
+  return setCookie.split(";")[0];
+}
+
+function accessTokenJson(overrides: Partial<Record<"token" | "secret" | "userNsid" | "username", string>> = {}) {
+  return JSON.stringify({ token: "at", secret: "ats", userNsid: "1", username: "tester", ...overrides });
+}
+
 beforeEach(async () => {
   await env.CAM_DB.prepare("DELETE FROM cam_files").run();
-  const keys = await env.FLICKR_TOKENS.list();
-  await Promise.all(keys.keys.map((k) => env.FLICKR_TOKENS.delete(k.name)));
   const objects = await env.CAM_ARCHIVE.list();
   await Promise.all(objects.objects.map((o) => env.CAM_ARCHIVE.delete(o.key)));
 });
@@ -41,13 +51,20 @@ describe("GET /oauth/url", () => {
     expect(res.status).toBe(503);
   });
 
-  it("stores the request token secret and returns the authorization url", async () => {
+  it("returns 503 when OAUTH_STATE_SECRET is not configured", async () => {
+    const res = await createApp().request("/oauth/url", {}, { ...env, OAUTH_STATE_SECRET: "" });
+    expect(res.status).toBe(503);
+  });
+
+  it("sets the oauth_state cookie and returns the authorization url", async () => {
     const fetchImpl = mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")]);
     const res = await createApp(fetchImpl).request("/oauth/url", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { authorization_url: string };
     expect(body.authorization_url).toContain("oauth_token=rt");
-    expect(await env.FLICKR_TOKENS.get("flickr:request_token:rt")).toBe("rts");
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("oauth_state=");
+    expect(setCookie).toContain("HttpOnly");
   });
 
   it("propagates upstream failure as 424, not a silent 200", async () => {
@@ -63,12 +80,12 @@ describe("GET /oauth/start (browser redirect flow)", () => {
     expect(res.status).toBe(503);
   });
 
-  it("stores the request token secret and 302-redirects to the Flickr authorization url", async () => {
+  it("sets the oauth_state cookie and 302-redirects to the Flickr authorization url", async () => {
     const fetchImpl = mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")]);
     const res = await createApp(fetchImpl).request("/oauth/start", { redirect: "manual" }, env);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("oauth_token=rt");
-    expect(await env.FLICKR_TOKENS.get("flickr:request_token:rt")).toBe("rts");
+    expect(res.headers.get("set-cookie") ?? "").toContain("oauth_state=");
   });
 });
 
@@ -78,31 +95,58 @@ describe("GET /oauth/callback (browser redirect flow)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400s when the oauth_token is unknown (not previously issued via /oauth/start)", async () => {
-    const res = await createApp().request("/oauth/callback?oauth_token=unknown&oauth_verifier=v", {}, env);
+  it("400s when there is no oauth_state cookie (not previously issued via /oauth/start)", async () => {
+    const res = await createApp().request("/oauth/callback?oauth_token=rt&oauth_verifier=v", {}, env);
     expect(res.status).toBe(400);
   });
 
-  it("exchanges the verifier, saves the access token, and redirects to / without echoing the secret", async () => {
-    await env.FLICKR_TOKENS.put("flickr:request_token:rt", "rts");
+  it("400s when the cookie's token doesn't match the query's oauth_token", async () => {
+    const startRes = await createApp(mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")])).request(
+      "/oauth/start",
+      { redirect: "manual" },
+      env,
+    );
+    const cookie = cookieHeaderFrom(startRes);
+
+    const res = await createApp().request(
+      "/oauth/callback?oauth_token=different&oauth_verifier=v",
+      { headers: { Cookie: cookie } },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("exchanges the verifier and shows the one-time access token page without redirecting", async () => {
+    const startRes = await createApp(mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")])).request(
+      "/oauth/start",
+      { redirect: "manual" },
+      env,
+    );
+    const cookie = cookieHeaderFrom(startRes);
+
     const fetchImpl = mockFetch([
       new Response("oauth_token=at&oauth_token_secret=ats&user_nsid=1%40N00&username=tester"),
     ]);
     const res = await createApp(fetchImpl).request(
       "/oauth/callback?oauth_token=rt&oauth_verifier=v",
-      { redirect: "manual" },
+      { headers: { Cookie: cookie } },
       env,
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/");
-    expect(await res.text()).not.toContain("ats");
-
-    const saved = await env.FLICKR_TOKENS.get("flickr:access_token");
-    expect(JSON.parse(saved!).secret).toBe("ats");
-    // request token は 1 回きり (使い捨て)
-    expect(await env.FLICKR_TOKENS.get("flickr:request_token:rt")).toBeNull();
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("tester");
+    expect(html).toContain("ats"); // 一度きりの表示ページなので、この画面には出す
+    expect(html).toContain("secret-inject");
+    // 使い捨て cookie は破棄される
+    expect(res.headers.get("set-cookie") ?? "").toContain("oauth_state=;");
   });
 });
+
+// 注: KV 版では request_token_secret を取得と同時に削除して「1回きり」を
+// サーバー側で強制していたが、署名付き cookie はステートレスなため同じ cookie
+// を TTL 内に複数回提示すること自体は妨げない。実際の一度きり性は Flickr 側の
+// oauth_token/oauth_verifier 交換が一度使うと無効化される (再利用は upstream が
+// 424 で拒否する) ことに委ねている。
 
 describe("GET /oauth/status", () => {
   it("reports unauthorized when nothing is saved", async () => {
@@ -111,12 +155,8 @@ describe("GET /oauth/status", () => {
     expect(body).toEqual({ authorized: false, username: null });
   });
 
-  it("reports authorized after a token is saved", async () => {
-    await env.FLICKR_TOKENS.put(
-      "flickr:access_token",
-      JSON.stringify({ token: "at", secret: "ats", userNsid: "1", username: "tester" }),
-    );
-    const res = await createApp().request("/oauth/status", {}, env);
+  it("reports authorized when FLICKR_ACCESS_TOKEN_JSON is set", async () => {
+    const res = await createApp().request("/oauth/status", {}, { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() });
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({ authorized: true, username: "tester" });
   });
@@ -133,12 +173,8 @@ describe("GET / (status page)", () => {
   });
 
   it("renders the connected username and day stats when authorized and synced", async () => {
-    await env.FLICKR_TOKENS.put(
-      "flickr:access_token",
-      JSON.stringify({ token: "at", secret: "ats", userNsid: "1", username: "tester" }),
-    );
     await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
-    const res = await createApp().request("/", {}, env);
+    const res = await createApp().request("/", {}, { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() });
     const html = await res.text();
     expect(html).toContain("tester");
     expect(html).toContain("20260101");
@@ -184,15 +220,15 @@ describe("GET /images (image browsing page)", () => {
   });
 
   it("links uploaded files to the Flickr photo page using the authorized user's nsid", async () => {
-    await env.FLICKR_TOKENS.put(
-      "flickr:access_token",
-      JSON.stringify({ token: "at", secret: "ats", userNsid: "12345", username: "tester" }),
-    );
     const { setCamFileFlickrId } = await import("../src/d1");
     await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
     await setCamFileFlickrId(env.CAM_DB, "a.jpg", "987654");
 
-    const res = await createApp().request("/images?date=20260101", {}, env);
+    const res = await createApp().request(
+      "/images?date=20260101",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson({ userNsid: "12345" }) },
+    );
     const html = await res.text();
     expect(html).toContain("https://www.flickr.com/photos/12345/987654");
   });

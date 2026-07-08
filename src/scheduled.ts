@@ -74,7 +74,7 @@ export async function runScheduled(
 
   const flickrConfig = flickrConfigFrom(env);
   const flickr = flickrConfig ? new FlickrClient(flickrConfig) : null;
-  const accessToken = await getAccessToken(env.FLICKR_TOKENS);
+  const accessToken = getAccessToken(env.FLICKR_ACCESS_TOKEN_JSON);
 
   const now = Math.floor(nowMs / 1000);
   const lastPosition = await lastCamFile(env.CAM_DB);

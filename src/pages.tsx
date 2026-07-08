@@ -81,6 +81,38 @@ export const StatusPage: FC<{
   </Layout>
 );
 
+/** OAuth 完了直後に 1 回だけ表示する画面。access token を Worker が永続化できない
+ * (CF Secrets Store は read-only) ため、運用者が secret-inject skill で手動投入
+ * するための値をここでのみ表示する (2026-07-08 方針転換、KV から移行)。 */
+export const OAuthCompletePage: FC<{
+  username: string;
+  userNsid: string;
+  tokenJson: string;
+}> = ({ username, userNsid, tokenJson }) => (
+  <Layout title="Flickr 認可完了">
+    <p>
+      Flickr 認可が完了しました: <strong>{username}</strong> ({userNsid})
+    </p>
+    <p>
+      <strong>この画面はこの 1 回しか表示されません。</strong>{" "}
+      以下の値を <code>secret-inject</code> skill で <code>FLICKR_ACCESS_TOKEN_JSON</code>{" "}
+      として今すぐ投入してください (CF Secrets Store の binding は read-only のため、
+      Worker 自身はこの値を永続化できません)。
+    </p>
+    <pre style="background:#f3f4f6; padding:0.75rem; border-radius:0.4rem; overflow-x:auto; white-space:pre-wrap; word-break:break-all;">
+      {tokenJson}
+    </pre>
+    <p>投入コマンド例 (値は必ず stdin から渡す — argv には置かない):</p>
+    <pre style="background:#f3f4f6; padding:0.75rem; border-radius:0.4rem; overflow-x:auto; white-space:pre-wrap; word-break:break-all;">
+      {`printf '%s' '<上記の JSON>' | bash ~/.claude/skills/secret-inject/scripts/inject-secret.sh FLICKR_ACCESS_TOKEN_JSON --targets gcp,cf`}
+    </pre>
+    <p>
+      投入後、<code>wrangler.jsonc</code> の <code>secrets_store_secrets</code> に{" "}
+      <code>FLICKR_ACCESS_TOKEN_JSON</code> の binding を追加して再 deploy してください。
+    </p>
+  </Layout>
+);
+
 function fileBadge(flickrId: string | null): { label: string; className: string } {
   if (flickrId === null) return { label: "未アップロード", className: "badge-pending" };
   if (flickrId === "SD_ZOMBIE") return { label: "SD消失", className: "badge-zombie" };

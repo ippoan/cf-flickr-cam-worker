@@ -17,9 +17,13 @@
 - **D1 (`CAM_DB`) は当日分のみ最小に保つ**。日次確定後は R2 (`CAM_ARCHIVE`) へ
   メタデータ JSON archive し D1 から削除する。**画像バイナリはどこにも持たない**
   (画像本体は Flickr が正)。
-- **access token / secret はレスポンス・ログに echo しない**。
-- **CI は single-env (staging = prod)**。deploy-staging/release は同じ root
-  `wrangler.jsonc` に deploy。初回は KV/D1/R2/VPC/Secrets の setup (README) が先。
+- **access token / secret は echo しない。唯一の例外は `/oauth/callback` の
+  一度きり表示**(Secrets Store が read-only なため、`secret-inject` で
+  `FLICKR_ACCESS_TOKEN_JSON` を手動投入する用途)。
+- **Flickr token は KV でなく secret**。request_token_secret は署名付き cookie
+  (`OAUTH_STATE_SECRET`、`src/oauthState.ts`) に一時保存 (2026-07-08 KVから移行)。
+- **CI は single-env (staging = prod)**。初回は D1/R2/VPC/Secrets の setup
+  (README) が先、`FLICKR_ACCESS_TOKEN_JSON` は OAuth 完了後の2段階投入。
 
 ## ビルド / テスト
 

@@ -4,17 +4,21 @@
 // カメラ scrape (cron) は `scheduled.ts` が持つ。ここは HTTP 経由の人間向け UI と
 // Flickr からの OAuth callback のみを扱う。
 
+import type { Context } from "hono";
 import { Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { getArchive, listArchivedDates } from "./archive";
 import type { CamFileRow } from "./d1";
 import { dayStats, listByDate, listDates } from "./d1";
 import type { Env } from "./env";
 import { FlickrClient, FlickrUpstreamError } from "./flickr";
-import { ImagesPage, StatusPage } from "./pages";
-import { getAccessToken, saveAccessToken, saveRequestTokenSecret, takeRequestTokenSecret } from "./tokens";
+import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
+import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
+import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
+const OAUTH_STATE_COOKIE = "oauth_state";
 
 function flickrClientFrom(env: Env, fetchImpl: typeof fetch): FlickrClient | null {
   if (!env.FLICKR_CONSUMER_KEY || !env.FLICKR_CONSUMER_SECRET || !env.FLICKR_CALLBACK_URL) return null;
@@ -45,6 +49,9 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   app.get("/oauth/url", async (c) => {
     const client = flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.json({ error: "not configured", message: "FLICKR_* is not set" }, 503);
+    if (!c.env.OAUTH_STATE_SECRET) {
+      return c.json({ error: "not configured", message: "OAUTH_STATE_SECRET is not set" }, 503);
+    }
 
     let requestToken;
     try {
@@ -53,12 +60,12 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       const message = e instanceof FlickrUpstreamError ? e.message : "flickr request failed";
       return c.json({ error: "upstream", message }, 424);
     }
-    await saveRequestTokenSecret(c.env.FLICKR_TOKENS, requestToken.token, requestToken.secret);
+    await setOAuthStateCookie(c, requestToken.token, requestToken.secret);
     return c.json({ authorization_url: requestToken.authorizationUrl });
   });
 
-  app.get("/oauth/status", async (c) => {
-    const token = await getAccessToken(c.env.FLICKR_TOKENS);
+  app.get("/oauth/status", (c) => {
+    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
     return c.json({ authorized: token !== null, username: token?.username ?? null });
   });
 
@@ -67,6 +74,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   app.get("/oauth/start", async (c) => {
     const client = flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.text("Flickr not configured", 503);
+    if (!c.env.OAUTH_STATE_SECRET) return c.text("OAUTH_STATE_SECRET is not set", 503);
 
     let requestToken;
     try {
@@ -74,7 +82,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     } catch {
       return c.text("Flickr request_token failed", 424);
     }
-    await saveRequestTokenSecret(c.env.FLICKR_TOKENS, requestToken.token, requestToken.secret);
+    await setOAuthStateCookie(c, requestToken.token, requestToken.secret);
     return c.redirect(requestToken.authorizationUrl, 302);
   });
 
@@ -87,32 +95,39 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
 
     const client = flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.text("Flickr not configured", 503);
+    if (!c.env.OAUTH_STATE_SECRET) return c.text("OAUTH_STATE_SECRET is not set", 503);
 
-    const requestTokenSecret = await takeRequestTokenSecret(c.env.FLICKR_TOKENS, oauthToken);
-    if (!requestTokenSecret) {
+    // cookie は成功・失敗を問わず 1 回きりの使い捨て
+    const cookieValue = getCookie(c, OAUTH_STATE_COOKIE);
+    deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/" });
+    const state = cookieValue ? await verifyState(cookieValue, c.env.OAUTH_STATE_SECRET) : null;
+    if (!state || state.token !== oauthToken) {
       return c.text("unknown or expired oauth_token — restart from /oauth/start", 400);
     }
 
     let accessToken;
     try {
-      accessToken = await client.getAccessToken(oauthToken, oauthVerifier, requestTokenSecret);
+      accessToken = await client.getAccessToken(oauthToken, oauthVerifier, state.secret);
     } catch {
       return c.text("Flickr access_token exchange failed", 424);
     }
 
-    await saveAccessToken(c.env.FLICKR_TOKENS, {
+    // CF Secrets Store は read-only のため Worker はここで永続化できない —
+    // 運用者が secret-inject skill で手動投入するための値を 1 回だけ表示する
+    // (通常の応答・ログに access token を出さない方針の、意図的な唯一の例外)
+    const tokenJson = JSON.stringify({
       token: accessToken.token,
       secret: accessToken.secret,
       userNsid: accessToken.userNsid,
       username: accessToken.username,
     });
-
-    // access token 本体は redirect 先に乗せない (会話・ログ・URL に値を残さない方針)
-    return c.redirect("/", 302);
+    return c.html(
+      <OAuthCompletePage username={accessToken.username} userNsid={accessToken.userNsid} tokenJson={tokenJson} />,
+    );
   });
 
   app.get("/", async (c) => {
-    const token = await getAccessToken(c.env.FLICKR_TOKENS);
+    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
     const days = c.env.CAM_DB ? await dayStats(c.env.CAM_DB, 14) : [];
     return c.html(
       <StatusPage authorized={token !== null} username={token?.username ?? null} days={days} />,
@@ -140,13 +155,30 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       }
     }
 
-    const token = await getAccessToken(c.env.FLICKR_TOKENS);
+    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
     return c.html(
       <ImagesPage date={date} availableDates={availableDates} files={files} userNsid={token?.userNsid ?? null} />,
     );
   });
 
   return app;
+}
+
+/** request_token_secret を署名付き HttpOnly cookie に載せる (KV の代替、
+ * `oauthState.ts` 冒頭コメント参照)。`/oauth/callback` 側で 1 回きり消費・破棄する。 */
+async function setOAuthStateCookie(
+  c: Context<{ Bindings: Env }>,
+  token: string,
+  secret: string,
+): Promise<void> {
+  const value = await signState({ token, secret }, c.env.OAUTH_STATE_SECRET);
+  setCookie(c, OAUTH_STATE_COOKIE, value, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    maxAge: REQUEST_TOKEN_TTL_SECONDS,
+    path: "/",
+  });
 }
 
 // production 用の既定インスタンス (fetchImpl = global fetch)

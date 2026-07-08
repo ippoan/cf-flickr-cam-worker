@@ -2,8 +2,7 @@ import { defineWorkersConfig, readD1Migrations } from "@cloudflare/vitest-pool-w
 
 // D1 (cam_files) / R2 (アーカイブ) を実際に叩くテストがあるため、実行環境として
 // vitest-pool-workers (Miniflare、実 Workers runtime 相当) を使う
-// (security-notification-app と同方針)。KV は KVLike DI (test/kv-fake.ts) で
-// 十分だったが、SQL 正しさは実 SQLite (D1) で検証する。
+// (security-notification-app と同方針)。SQL 正しさは実 SQLite (D1) で検証する。
 //
 // migrations の読み込み (fs アクセス) は Node 側 (このファイル) でしかできない
 // ため、ここで読んで TEST_MIGRATIONS binding 経由で worker sandbox 側
@@ -29,6 +28,7 @@ export default defineWorkersConfig(async () => {
               CAM_SDCARD_CGI: "https://cam.internal/sd/",
               CAM_MP4_CGI: "https://cam.internal/mp4/",
               CAM_JPG_CGI: "https://cam.internal/jpg/",
+              OAUTH_STATE_SECRET: "test-oauth-state-secret",
             },
           },
         },
