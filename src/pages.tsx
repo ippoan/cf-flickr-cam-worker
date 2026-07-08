@@ -170,8 +170,9 @@ export const ImagesPage: FC<{
                 <tr>
                   <td class="thumb-cell">
                     {uploaded ? (
-                      <a href={`/images/photo/${f.flickrId}?size=b`} target="_blank" rel="noreferrer">
-                        <img class="thumb" src={`/images/photo/${f.flickrId}?size=m`} alt={f.name} loading="lazy" />
+                      // date を付けて archive 済み写真も引けるようにする (Refs #28)
+                      <a href={`/images/photo/${f.flickrId}?date=${f.date}&size=b`} target="_blank" rel="noreferrer">
+                        <img class="thumb" src={`/images/photo/${f.flickrId}?date=${f.date}&size=m`} alt={f.name} loading="lazy" />
                       </a>
                     ) : null}
                   </td>

@@ -240,8 +240,9 @@ describe("GET /images (image browsing page)", () => {
 
     const res = await createApp().request("/images?date=20260101", {}, env);
     const html = await res.text();
-    expect(html).toContain(`src="/images/photo/987654?size=m"`);
-    expect(html).toContain(`href="/images/photo/987654?size=b"`);
+    // Hono JSX は属性内の & を &amp; にエスケープする (ブラウザは & として解釈)
+    expect(html).toContain(`src="/images/photo/987654?date=20260101&amp;size=m"`);
+    expect(html).toContain(`href="/images/photo/987654?date=20260101&amp;size=b"`);
   });
 
   it("does not render a thumbnail for SD_ZOMBIE (no real photo)", async () => {
@@ -349,7 +350,7 @@ describe("GET /images/list", () => {
     const body = (await res.json()) as { files: { name: string; flickrId: string | null; photoUrl: string | null }[] };
     const uploaded = body.files.find((f) => f.name === "Event20260101_000000.jpg");
     const zombie = body.files.find((f) => f.name === "Event20260101_010000.jpg");
-    expect(uploaded?.photoUrl).toBe("/images/photo/12345");
+    expect(uploaded?.photoUrl).toBe("/images/photo/12345?date=20260101"); // date 付きで archive も引ける
     expect(zombie?.photoUrl).toBeNull(); // SD_ZOMBIE は実写真ではない
   });
 
@@ -421,6 +422,41 @@ describe("GET /images/photo/:flickrId", () => {
       { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
     );
     expect(res.headers.get("location")).toBe("https://live.staticflickr.com/65535/12345_abcdef_z.jpg");
+  });
+
+  it("resolves an archived (D1-deleted) photo via ?date= and 302-redirects", async () => {
+    // アップロード済み→archive→D1 削除、という日次フローを再現する
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_000000.jpg", "12345");
+    const { archiveDate } = await import("../src/archive");
+    await archiveDate(env.CAM_DB, env.CAM_ARCHIVE, "20260101", 2000); // D1 から消え R2 へ
+
+    const fetchImpl = mockFetch([
+      new Response(JSON.stringify({ stat: "ok", photo: { id: "12345", server: "65535", secret: "abcdef" } })),
+    ]);
+    const res = await createApp(fetchImpl).request(
+      "/images/photo/12345?date=20260101",
+      { redirect: "manual" },
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://live.staticflickr.com/65535/12345_abcdef_b.jpg");
+  });
+
+  it("still 404s for an archived id when ?date= is omitted", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_000000.jpg", "12345");
+    const { archiveDate } = await import("../src/archive");
+    await archiveDate(env.CAM_DB, env.CAM_ARCHIVE, "20260101", 2000);
+
+    const res = await createApp().request(
+      "/images/photo/12345",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() },
+    );
+    expect(res.status).toBe(404);
   });
 
   it("502s when the Flickr getInfo call fails", async () => {

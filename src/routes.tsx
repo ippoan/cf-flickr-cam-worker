@@ -237,7 +237,8 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
         hour: f.hour,
         type: f.type,
         flickrId: f.flickrId,
-        photoUrl: f.flickrId && /^\d+$/.test(f.flickrId) ? `/images/photo/${f.flickrId}` : null,
+        // date を付けて archive 済み写真も引けるようにする (Refs #28)
+        photoUrl: f.flickrId && /^\d+$/.test(f.flickrId) ? `/images/photo/${f.flickrId}?date=${f.date}` : null,
       })),
     });
   });
@@ -256,7 +257,18 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     if (!FLICKR_STATIC_SIZES.has(size)) {
       return c.json({ error: "invalid size", message: "size must be one of m,z,c,b" }, 400);
     }
-    if (!c.env.CAM_DB || !(await camFileByFlickrId(c.env.CAM_DB, flickrId))) {
+    // アップロード済み写真は日次で R2 archive に移り D1 から消えるため、D1 で
+    // 見つからなければ `?date=` の archive も検索する (Refs #28)。任意 photo_id
+    // への open redirect を防ぐため、どちらかに実在することを必須にする。
+    let known = c.env.CAM_DB ? (await camFileByFlickrId(c.env.CAM_DB, flickrId)) !== null : false;
+    if (!known) {
+      const date = c.req.query("date");
+      if (date && /^\d{8}$/.test(date) && c.env.CAM_ARCHIVE) {
+        const archive = await getArchive(c.env.CAM_ARCHIVE, date);
+        known = archive?.files.some((f) => f.flickrId === flickrId) ?? false;
+      }
+    }
+    if (!known) {
       return c.json({ error: "not found", message: "unknown flickr photo" }, 404);
     }
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
