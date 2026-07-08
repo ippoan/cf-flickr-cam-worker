@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { getArchive, listArchivedDates } from "./archive";
+import { CamClient, parseDirNames } from "./cam";
 import type { CamFileRow } from "./d1";
 import { dayStats, listByDate, listDates } from "./d1";
 import type { Env } from "./env";
@@ -19,7 +20,7 @@ import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
 import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
 import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
-import { runScheduled } from "./scheduled";
+import { camConfigFrom, runScheduled } from "./scheduled";
 import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
@@ -146,6 +147,16 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     const result = await runScheduled(c.env, Date.now());
     if (!result) return c.json({ error: "not configured", message: "CAM_* is not set" }, 503);
     return c.json(result);
+  });
+
+  // 「0 dates」が SD カード側の空応答なのか parseDirNames の不一致なのかを
+  // 切り分けるためのデバッグ用エンドポイント (Refs #19)。
+  app.get("/admin/debug/cam", async (c) => {
+    const camConfig = await camConfigFrom(c.env);
+    if (!camConfig) return c.json({ error: "not configured", message: "CAM_* is not set" }, 503);
+    const cam = new CamClient(camConfig, c.env.CAM_SERVICE.fetch.bind(c.env.CAM_SERVICE) as typeof fetch);
+    const raw = await cam.debugListRoot();
+    return c.json({ ...raw, parsedDates: parseDirNames(raw.body) });
   });
 
   app.get("/", async (c) => {
