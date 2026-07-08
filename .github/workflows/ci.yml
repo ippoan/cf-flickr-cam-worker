@@ -33,7 +33,9 @@ jobs:
       typecheck_command: 'npx tsc --noEmit'
       has_tests: true
       test_command: 'npx vitest run --coverage'
-      # single-env: staging deploy と release deploy は同じ root config を叩く
-      deploy_staging_script: 'npx wrangler deploy'
-      deploy_release_script: 'npx wrangler deploy'
+      # single-env: staging deploy と release deploy は同じ root config を叩く。
+      # wrangler deploy は D1 migration を自動適用しないため、deploy 前に remote
+      # migration apply を挟む (CLOUDFLARE_API_TOKEN は D1:Edit を保有、Refs #12)。
+      deploy_staging_script: 'npx wrangler d1 migrations apply cf-flickr-cam-worker-db --remote && npx wrangler deploy'
+      deploy_release_script: 'npx wrangler d1 migrations apply cf-flickr-cam-worker-db --remote && npx wrangler deploy'
     secrets: inherit
