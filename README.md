@@ -48,6 +48,10 @@ Flickr / 運用者ブラウザ
           → GET /oauth/callback  認可完了 → access token を一度だけ表示
                               (secret-inject で手動投入するため)
           → GET /images      画像確認 (日付ごとのアップロード状況 + Flickr へのリンク)
+          → POST /admin/sync カメラ scrape → Flickr upload を手動実行 (テスト用、
+                              CF ダッシュボードの Trigger scheduled event が
+                              VPC Services/Secrets Store 未対応でグレーアウト
+                              するための代替、Refs #15)。StatusPage にボタンあり
 ```
 
 ## 現在の実装状態

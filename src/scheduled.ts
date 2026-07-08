@@ -10,6 +10,7 @@ import type { Env } from "./env";
 import type { FlickrConfig } from "./flickr";
 import { FlickrClient } from "./flickr";
 import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
+import type { SyncResult } from "./sync";
 import { syncCamFiles } from "./sync";
 import { getAccessToken } from "./tokens";
 
@@ -61,16 +62,19 @@ export { camConfigFrom, flickrConfigFrom };
  * `camFetch` は DI (既定は Workers VPC Services binding `env.CAM_SERVICE`)。
  * vitest-pool-workers (Miniflare) は `vpc_services` binding を未対応のため、
  * テストではモック実装を渡す (`cf-flickr-proxy` の `fetchImpl` DI と同じ流儀)。
+ *
+ * 戻り値は `SyncResult` (cam scrape → upload の結果)。CAM_* 未設定でスキップした
+ * 場合は `null` (`POST /admin/sync` が手動実行結果を表示するために使う、Refs #15)。
  */
 export async function runScheduled(
   env: Env,
   nowMs: number,
   camFetch: typeof fetch = env.CAM_SERVICE.fetch.bind(env.CAM_SERVICE) as typeof fetch,
-): Promise<void> {
+): Promise<SyncResult | null> {
   const camConfig = await camConfigFrom(env);
   if (!camConfig) {
     console.warn("CAM_* not fully set — skipping cam scrape");
-    return;
+    return null;
   }
   const cam = new CamClient(camConfig, camFetch);
 
@@ -92,4 +96,6 @@ export async function runScheduled(
     const archivedCount = await archiveDate(env.CAM_DB, env.CAM_ARCHIVE, date, now);
     if (archivedCount > 0) console.log(`archived ${archivedCount} files for ${date}`);
   }
+
+  return result;
 }
