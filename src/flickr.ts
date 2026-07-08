@@ -56,7 +56,12 @@ export class FlickrClient {
 
   constructor(config: FlickrConfig, fetchImpl: typeof fetch = fetch, endpoints?: Partial<Endpoints>) {
     this.config = config;
-    this.fetchImpl = fetchImpl;
+    // Cloudflare Workers runtime の native fetch は brand-checked receiver を要求する。
+    // `this.fetchImpl(...)` (method-call 構文) で呼ぶと `this` が FlickrClient
+    // instance になり "Illegal invocation" で落ちる (テストの mock fetchImpl は
+    // this を見ないため再現しない、production でのみ顕在化した実害)。
+    // globalThis に bind して呼び出し元の this に依存しないようにする。
+    this.fetchImpl = fetchImpl.bind(globalThis);
     this.endpoints = {
       requestTokenUrl: endpoints?.requestTokenUrl ?? REQUEST_TOKEN_URL,
       accessTokenUrl: endpoints?.accessTokenUrl ?? ACCESS_TOKEN_URL,
