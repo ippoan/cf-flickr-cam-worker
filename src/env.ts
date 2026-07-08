@@ -25,6 +25,12 @@ export interface Env {
   CAM_SDCARD_CGI_PATH: string;
   CAM_MP4_CGI_PATH: string;
   CAM_JPG_CGI_PATH: string;
+  // 本 worker は workers_dev:false で完全非公開で、到達経路は auth-worker の
+  // `/cf-flickr-cam-worker-proxy/*` proxy のみ。proxy は prefix を剥がして
+  // forward するため worker 自身は prefix を知らない。HTML ページの内部リンク
+  // (nav / form / img / a) にこの prefix を付けないとブラウザが prefix 無しで
+  // 辿り not found になる (Refs #30)。未設定なら空 (直アクセス/テスト用)。
+  PUBLIC_PATH_PREFIX?: string;
   CAM_CF_ACCESS_CLIENT_ID?: string;
   CAM_CF_ACCESS_CLIENT_SECRET?: string;
   // cam_files 相当の当日分メタデータ (状態管理の主体、Refs ohishi-exp/ohishi-logi#1)

@@ -179,6 +179,25 @@ describe("GET / (status page)", () => {
     expect(html).toContain("tester");
     expect(html).toContain("20260101");
   });
+
+  it("prefixes nav/form links with PUBLIC_PATH_PREFIX so they route through the proxy (#30)", async () => {
+    const res = await createApp().request("/", {}, env);
+    const html = await res.text();
+    // nav・接続ボタン・同期フォームが proxy prefix 付きで出る
+    expect(html).toContain(`href="/cf-flickr-cam-worker-proxy/"`);
+    expect(html).toContain(`href="/cf-flickr-cam-worker-proxy/images"`);
+    expect(html).toContain(`href="/cf-flickr-cam-worker-proxy/oauth/start"`);
+    expect(html).toContain(`action="/cf-flickr-cam-worker-proxy/admin/sync"`);
+    // prefix 抜きの裸リンクが残っていない (nav の href="/" 等)
+    expect(html).not.toContain(`href="/images"`);
+  });
+
+  it("omits the prefix when PUBLIC_PATH_PREFIX is unset (direct access / tests)", async () => {
+    const res = await createApp().request("/", {}, { ...env, PUBLIC_PATH_PREFIX: "" });
+    const html = await res.text();
+    expect(html).toContain(`href="/images"`);
+    expect(html).toContain(`action="/admin/sync"`);
+  });
 });
 
 describe("GET /images (image browsing page)", () => {
@@ -240,9 +259,9 @@ describe("GET /images (image browsing page)", () => {
 
     const res = await createApp().request("/images?date=20260101", {}, env);
     const html = await res.text();
-    // Hono JSX は属性内の & を &amp; にエスケープする (ブラウザは & として解釈)
-    expect(html).toContain(`src="/images/photo/987654?date=20260101&amp;size=m"`);
-    expect(html).toContain(`href="/images/photo/987654?date=20260101&amp;size=b"`);
+    // proxy prefix 付き。Hono JSX は属性内の & を &amp; にエスケープする (#30)
+    expect(html).toContain(`src="/cf-flickr-cam-worker-proxy/images/photo/987654?date=20260101&amp;size=m"`);
+    expect(html).toContain(`href="/cf-flickr-cam-worker-proxy/images/photo/987654?date=20260101&amp;size=b"`);
   });
 
   it("does not render a thumbnail for SD_ZOMBIE (no real photo)", async () => {
@@ -350,7 +369,8 @@ describe("GET /images/list", () => {
     const body = (await res.json()) as { files: { name: string; flickrId: string | null; photoUrl: string | null }[] };
     const uploaded = body.files.find((f) => f.name === "Event20260101_000000.jpg");
     const zombie = body.files.find((f) => f.name === "Event20260101_010000.jpg");
-    expect(uploaded?.photoUrl).toBe("/images/photo/12345?date=20260101"); // date 付きで archive も引ける
+    // proxy prefix (wrangler vars 由来) + date 付きで archive も引ける (#28/#30)
+    expect(uploaded?.photoUrl).toBe("/cf-flickr-cam-worker-proxy/images/photo/12345?date=20260101");
     expect(zombie?.photoUrl).toBeNull(); // SD_ZOMBIE は実写真ではない
   });
 

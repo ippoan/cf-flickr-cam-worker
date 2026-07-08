@@ -5,7 +5,7 @@ import type { FC } from "hono/jsx";
 
 import type { CamFileRow, DayStats } from "./d1";
 
-const Layout: FC<{ title: string; children?: unknown }> = ({ title, children }) => (
+const Layout: FC<{ title: string; prefix: string; children?: unknown }> = ({ title, prefix, children }) => (
   <html lang="ja">
     <head>
       <meta charset="utf-8" />
@@ -28,8 +28,8 @@ const Layout: FC<{ title: string; children?: unknown }> = ({ title, children }) 
     </head>
     <body>
       <nav>
-        <a href="/">状況</a>
-        <a href="/images">画像確認</a>
+        <a href={`${prefix}/`}>状況</a>
+        <a href={`${prefix}/images`}>画像確認</a>
       </nav>
       <h1>{title}</h1>
       {children}
@@ -41,8 +41,9 @@ export const StatusPage: FC<{
   authorized: boolean;
   username: string | null;
   days: DayStats[];
-}> = ({ authorized, username, days }) => (
-  <Layout title="cf-flickr-cam-worker">
+  prefix: string;
+}> = ({ authorized, username, days, prefix }) => (
+  <Layout title="cf-flickr-cam-worker" prefix={prefix}>
     {authorized ? (
       <p>
         Flickr に接続済み: <strong>{username}</strong>
@@ -50,12 +51,12 @@ export const StatusPage: FC<{
     ) : (
       <p>
         Flickr 未接続です。
-        <a class="button" href="/oauth/start">
+        <a class="button" href={`${prefix}/oauth/start`}>
           Flickr に接続
         </a>
       </p>
     )}
-    <form method="post" action="/admin/sync" onsubmit="return confirm('今すぐカメラの取り込みを実行しますか?');">
+    <form method="post" action={`${prefix}/admin/sync`} onsubmit="return confirm('今すぐカメラの取り込みを実行しますか?');">
       <button class="button" type="submit">
         今すぐ同期を実行
       </button>
@@ -76,7 +77,7 @@ export const StatusPage: FC<{
           {days.map((d) => (
             <tr>
               <td>
-                <a href={`/images?date=${d.date}`}>{d.date}</a>
+                <a href={`${prefix}/images?date=${d.date}`}>{d.date}</a>
               </td>
               <td>{d.files}</td>
               <td>{d.uploaded}</td>
@@ -95,8 +96,9 @@ export const OAuthCompletePage: FC<{
   username: string;
   userNsid: string;
   tokenJson: string;
-}> = ({ username, userNsid, tokenJson }) => (
-  <Layout title="Flickr 認可完了">
+  prefix: string;
+}> = ({ username, userNsid, tokenJson, prefix }) => (
+  <Layout title="Flickr 認可完了" prefix={prefix}>
     <p>
       Flickr 認可が完了しました: <strong>{username}</strong> ({userNsid})
     </p>
@@ -132,13 +134,14 @@ export const ImagesPage: FC<{
   availableDates: string[];
   files: CamFileRow[];
   userNsid: string | null;
-}> = ({ date, availableDates, files, userNsid }) => (
-  <Layout title="画像確認">
+  prefix: string;
+}> = ({ date, availableDates, files, userNsid, prefix }) => (
+  <Layout title="画像確認" prefix={prefix}>
     {availableDates.length === 0 ? (
       <p>まだデータがありません。</p>
     ) : (
       <>
-        <form method="get" action="/images">
+        <form method="get" action={`${prefix}/images`}>
           <label>
             日付:{" "}
             <select name="date" onchange="this.form.submit()">
@@ -171,8 +174,8 @@ export const ImagesPage: FC<{
                   <td class="thumb-cell">
                     {uploaded ? (
                       // date を付けて archive 済み写真も引けるようにする (Refs #28)
-                      <a href={`/images/photo/${f.flickrId}?date=${f.date}&size=b`} target="_blank" rel="noreferrer">
-                        <img class="thumb" src={`/images/photo/${f.flickrId}?date=${f.date}&size=m`} alt={f.name} loading="lazy" />
+                      <a href={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=b`} target="_blank" rel="noreferrer">
+                        <img class="thumb" src={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=m`} alt={f.name} loading="lazy" />
                       </a>
                     ) : null}
                   </td>

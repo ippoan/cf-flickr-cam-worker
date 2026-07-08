@@ -141,7 +141,12 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       username: accessToken.username,
     });
     return c.html(
-      <OAuthCompletePage username={accessToken.username} userNsid={accessToken.userNsid} tokenJson={tokenJson} />,
+      <OAuthCompletePage
+        username={accessToken.username}
+        userNsid={accessToken.userNsid}
+        tokenJson={tokenJson}
+        prefix={c.env.PUBLIC_PATH_PREFIX ?? ""}
+      />,
     );
   });
 
@@ -173,7 +178,12 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     const days = c.env.CAM_DB ? await dayStats(c.env.CAM_DB, 14) : [];
     return c.html(
-      <StatusPage authorized={token !== null} username={token?.username ?? null} days={days} />,
+      <StatusPage
+        authorized={token !== null}
+        username={token?.username ?? null}
+        days={days}
+        prefix={c.env.PUBLIC_PATH_PREFIX ?? ""}
+      />,
     );
   });
 
@@ -200,7 +210,13 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
 
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     return c.html(
-      <ImagesPage date={date} availableDates={availableDates} files={files} userNsid={token?.userNsid ?? null} />,
+      <ImagesPage
+        date={date}
+        availableDates={availableDates}
+        files={files}
+        userNsid={token?.userNsid ?? null}
+        prefix={c.env.PUBLIC_PATH_PREFIX ?? ""}
+      />,
     );
   });
 
@@ -228,6 +244,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
         files = archive?.files ?? [];
       }
     }
+    const prefix = c.env.PUBLIC_PATH_PREFIX ?? "";
     return c.json({
       date,
       availableDates,
@@ -237,8 +254,10 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
         hour: f.hour,
         type: f.type,
         flickrId: f.flickrId,
-        // date を付けて archive 済み写真も引けるようにする (Refs #28)
-        photoUrl: f.flickrId && /^\d+$/.test(f.flickrId) ? `/images/photo/${f.flickrId}?date=${f.date}` : null,
+        // date を付けて archive 済み写真も引けるように (#28)。proxy prefix 付き
+        // で返すのでブラウザからそのまま辿れる (#30)。
+        photoUrl:
+          f.flickrId && /^\d+$/.test(f.flickrId) ? `${prefix}/images/photo/${f.flickrId}?date=${f.date}` : null,
       })),
     });
   });
