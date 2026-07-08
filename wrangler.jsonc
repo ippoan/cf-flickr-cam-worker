@@ -115,12 +115,15 @@
 			"binding": "OAUTH_STATE_SECRET",
 			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
 			"secret_name": "cf-flickr-cam-worker-oauth-state-secret"
+		},
+		// access token 本体。OAuth 完了後に GCP Secret Manager
+		// (`FLICKR_ACCESS_TOKEN_JSON`) へ投入済みの値を `sync_from_gcp` で
+		// この CF Secrets Store secret にミラーした (2026-07-08、Refs #3)。
+		{
+			"binding": "FLICKR_ACCESS_TOKEN_JSON",
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "cf-flickr-cam-worker-flickr-access-token-json"
 		}
-		// FLICKR_ACCESS_TOKEN_JSON (access token 本体) はここに含めない —
-		// 初回 deploy 時点ではまだ存在しないため binding を足すと解決できず deploy
-		// が落ちる (chicken-egg)。`/oauth/start` で OAuth を完了させ、
-		// `/oauth/callback` が一度だけ表示する値を secret-inject skill で投入した
-		// "後" に、この binding を追加して再 deploy すること (README 参照)。
 	],
 	"vars": {
 		// Flickr OAuth callback URL (非 secret)。本 worker は workers_dev: false

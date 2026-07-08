@@ -15,7 +15,7 @@ import type { Env } from "./env";
 import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
 import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
-import { resolveSecret } from "./secret";
+import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
 import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
@@ -68,8 +68,8 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     return c.json({ authorization_url: requestToken.authorizationUrl });
   });
 
-  app.get("/oauth/status", (c) => {
-    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
+  app.get("/oauth/status", async (c) => {
+    const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     return c.json({ authorized: token !== null, username: token?.username ?? null });
   });
 
@@ -137,7 +137,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   });
 
   app.get("/", async (c) => {
-    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
+    const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     const days = c.env.CAM_DB ? await dayStats(c.env.CAM_DB, 14) : [];
     return c.html(
       <StatusPage authorized={token !== null} username={token?.username ?? null} days={days} />,
@@ -165,7 +165,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       }
     }
 
-    const token = getAccessToken(c.env.FLICKR_ACCESS_TOKEN_JSON);
+    const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     return c.html(
       <ImagesPage date={date} availableDates={availableDates} files={files} userNsid={token?.userNsid ?? null} />,
     );
