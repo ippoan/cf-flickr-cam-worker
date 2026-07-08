@@ -1,0 +1,235 @@
+import { env } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { archiveDate } from "../src/archive";
+import { upsertCamFile } from "../src/d1";
+import { createApp } from "../src/routes";
+
+function mockFetch(responses: Response[]) {
+  let i = 0;
+  return (async () => responses[Math.min(i++, responses.length - 1)]) as unknown as typeof fetch;
+}
+
+/** Set-Cookie ヘッダ (`name=value; Path=/; ...`) から `name=value` だけを抜き出し、
+ * 次のリクエストの Cookie ヘッダとして使えるようにする。 */
+function cookieHeaderFrom(res: Response): string {
+  const setCookie = res.headers.get("set-cookie");
+  if (!setCookie) throw new Error("no set-cookie header on response");
+  return setCookie.split(";")[0];
+}
+
+function accessTokenJson(overrides: Partial<Record<"token" | "secret" | "userNsid" | "username", string>> = {}) {
+  return JSON.stringify({ token: "at", secret: "ats", userNsid: "1", username: "tester", ...overrides });
+}
+
+beforeEach(async () => {
+  await env.CAM_DB.prepare("DELETE FROM cam_files").run();
+  const objects = await env.CAM_ARCHIVE.list();
+  await Promise.all(objects.objects.map((o) => env.CAM_ARCHIVE.delete(o.key)));
+});
+
+describe("GET /health", () => {
+  it("returns ok status", async () => {
+    const res = await createApp().request("/health", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("ok");
+    expect(body.service).toBe("cf-flickr-cam-worker");
+  });
+});
+
+describe("unknown routes", () => {
+  it("returns 404 for unmatched path", async () => {
+    const res = await createApp().request("/nope", {}, env);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /oauth/url", () => {
+  it("returns 503 when FLICKR_* is not configured", async () => {
+    const res = await createApp().request("/oauth/url", {}, { ...env, FLICKR_CONSUMER_KEY: "" });
+    expect(res.status).toBe(503);
+  });
+
+  it("returns 503 when OAUTH_STATE_SECRET is not configured", async () => {
+    const res = await createApp().request("/oauth/url", {}, { ...env, OAUTH_STATE_SECRET: "" });
+    expect(res.status).toBe(503);
+  });
+
+  it("sets the oauth_state cookie and returns the authorization url", async () => {
+    const fetchImpl = mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")]);
+    const res = await createApp(fetchImpl).request("/oauth/url", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { authorization_url: string };
+    expect(body.authorization_url).toContain("oauth_token=rt");
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("oauth_state=");
+    expect(setCookie).toContain("HttpOnly");
+  });
+
+  it("propagates upstream failure as 424, not a silent 200", async () => {
+    const fetchImpl = mockFetch([new Response("oauth_problem=x", { status: 401 })]);
+    const res = await createApp(fetchImpl).request("/oauth/url", {}, env);
+    expect(res.status).toBe(424);
+  });
+});
+
+describe("GET /oauth/start (browser redirect flow)", () => {
+  it("503s when FLICKR_* is not configured", async () => {
+    const res = await createApp().request("/oauth/start", {}, { ...env, FLICKR_CONSUMER_KEY: "" });
+    expect(res.status).toBe(503);
+  });
+
+  it("sets the oauth_state cookie and 302-redirects to the Flickr authorization url", async () => {
+    const fetchImpl = mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")]);
+    const res = await createApp(fetchImpl).request("/oauth/start", { redirect: "manual" }, env);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("oauth_token=rt");
+    expect(res.headers.get("set-cookie") ?? "").toContain("oauth_state=");
+  });
+});
+
+describe("GET /oauth/callback (browser redirect flow)", () => {
+  it("400s when oauth_token/oauth_verifier are missing", async () => {
+    const res = await createApp().request("/oauth/callback", {}, env);
+    expect(res.status).toBe(400);
+  });
+
+  it("400s when there is no oauth_state cookie (not previously issued via /oauth/start)", async () => {
+    const res = await createApp().request("/oauth/callback?oauth_token=rt&oauth_verifier=v", {}, env);
+    expect(res.status).toBe(400);
+  });
+
+  it("400s when the cookie's token doesn't match the query's oauth_token", async () => {
+    const startRes = await createApp(mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")])).request(
+      "/oauth/start",
+      { redirect: "manual" },
+      env,
+    );
+    const cookie = cookieHeaderFrom(startRes);
+
+    const res = await createApp().request(
+      "/oauth/callback?oauth_token=different&oauth_verifier=v",
+      { headers: { Cookie: cookie } },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("exchanges the verifier and shows the one-time access token page without redirecting", async () => {
+    const startRes = await createApp(mockFetch([new Response("oauth_token=rt&oauth_token_secret=rts")])).request(
+      "/oauth/start",
+      { redirect: "manual" },
+      env,
+    );
+    const cookie = cookieHeaderFrom(startRes);
+
+    const fetchImpl = mockFetch([
+      new Response("oauth_token=at&oauth_token_secret=ats&user_nsid=1%40N00&username=tester"),
+    ]);
+    const res = await createApp(fetchImpl).request(
+      "/oauth/callback?oauth_token=rt&oauth_verifier=v",
+      { headers: { Cookie: cookie } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("tester");
+    expect(html).toContain("ats"); // 一度きりの表示ページなので、この画面には出す
+    expect(html).toContain("secret-inject");
+    // 使い捨て cookie は破棄される
+    expect(res.headers.get("set-cookie") ?? "").toContain("oauth_state=;");
+  });
+});
+
+// 注: KV 版では request_token_secret を取得と同時に削除して「1回きり」を
+// サーバー側で強制していたが、署名付き cookie はステートレスなため同じ cookie
+// を TTL 内に複数回提示すること自体は妨げない。実際の一度きり性は Flickr 側の
+// oauth_token/oauth_verifier 交換が一度使うと無効化される (再利用は upstream が
+// 424 で拒否する) ことに委ねている。
+
+describe("GET /oauth/status", () => {
+  it("reports unauthorized when nothing is saved", async () => {
+    const res = await createApp().request("/oauth/status", {}, env);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ authorized: false, username: null });
+  });
+
+  it("reports authorized when FLICKR_ACCESS_TOKEN_JSON is set", async () => {
+    const res = await createApp().request("/oauth/status", {}, { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ authorized: true, username: "tester" });
+  });
+});
+
+describe("GET / (status page)", () => {
+  it("renders a connect prompt when not authorized", async () => {
+    const res = await createApp().request("/", {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("未接続");
+    expect(html).toContain("/oauth/start");
+  });
+
+  it("renders the connected username and day stats when authorized and synced", async () => {
+    await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
+    const res = await createApp().request("/", {}, { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() });
+    const html = await res.text();
+    expect(html).toContain("tester");
+    expect(html).toContain("20260101");
+  });
+});
+
+describe("GET /images (image browsing page)", () => {
+  it("shows a message when there is no data yet", async () => {
+    const res = await createApp().request("/images", {}, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("まだデータがありません");
+  });
+
+  it("lists live (D1) files for the current date with upload status badges", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    await upsertCamFile(env.CAM_DB, "Event20260101_010000.jpg", "20260101", "010000", "jpg", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_010000.jpg", "SD_ZOMBIE");
+
+    const res = await createApp().request("/images?date=20260101", {}, env);
+    const html = await res.text();
+    expect(html).toContain("Event20260101_000000.jpg");
+    expect(html).toContain("未アップロード");
+    expect(html).toContain("SD消失");
+  });
+
+  it("falls back to an archived (R2) date when it is no longer in D1", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    await archiveDate(env.CAM_DB, env.CAM_ARCHIVE, "20260101", 5000);
+
+    const res = await createApp().request("/images?date=20260101", {}, env);
+    const html = await res.text();
+    expect(html).toContain("Event20260101_000000.jpg");
+  });
+
+  it("defaults to the most recent available date when none is requested", async () => {
+    await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
+    await upsertCamFile(env.CAM_DB, "b.jpg", "20260102", "000000", "jpg", 1000);
+    const res = await createApp().request("/images", {}, env);
+    const html = await res.text();
+    expect(html).toContain("b.jpg");
+  });
+
+  it("links uploaded files to the Flickr photo page using the authorized user's nsid", async () => {
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
+    await setCamFileFlickrId(env.CAM_DB, "a.jpg", "987654");
+
+    const res = await createApp().request(
+      "/images?date=20260101",
+      {},
+      { ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson({ userNsid: "12345" }) },
+    );
+    const html = await res.text();
+    expect(html).toContain("https://www.flickr.com/photos/12345/987654");
+  });
+});

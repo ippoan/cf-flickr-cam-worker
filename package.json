@@ -1,0 +1,24 @@
+{
+  "name": "cf-flickr-cam-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cron trigger camera scrape (Digest auth via Workers VPC Services) + Flickr OAuth1.0a upload + D1/R2 metadata archive.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.41",
+    "@cloudflare/workers-types": "^5.20260706.1",
+    "@vitest/coverage-istanbul": "^2.1.9",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.67.0"
+  }
+}
