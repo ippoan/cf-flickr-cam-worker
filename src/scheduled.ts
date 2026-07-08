@@ -9,6 +9,7 @@ import { lastCamFile, listDates } from "./d1";
 import type { Env } from "./env";
 import type { FlickrConfig } from "./flickr";
 import { FlickrClient } from "./flickr";
+import { resolveSecret } from "./secret";
 import { syncCamFiles } from "./sync";
 import { getAccessToken } from "./tokens";
 
@@ -16,36 +17,37 @@ import { getAccessToken } from "./tokens";
 // 収める (rust-flickr の既定値 50 を踏襲)。残りは次回 cron が拾う。
 const UPLOAD_LIMIT = 50;
 
-function camConfigFrom(env: Env): CamConfig | null {
-  if (
-    !env.CAM_DIGEST_USER ||
-    !env.CAM_DIGEST_PASS ||
-    !env.CAM_MACHINE_NAME ||
-    !env.CAM_SDCARD_CGI ||
-    !env.CAM_MP4_CGI ||
-    !env.CAM_JPG_CGI
-  ) {
+async function camConfigFrom(env: Env): Promise<CamConfig | null> {
+  const [digestUser, digestPass, machineName, sdcardCgi, mp4Cgi, jpgCgi] = await Promise.all([
+    resolveSecret(env.CAM_DIGEST_USER),
+    resolveSecret(env.CAM_DIGEST_PASS),
+    resolveSecret(env.CAM_MACHINE_NAME),
+    resolveSecret(env.CAM_SDCARD_CGI),
+    resolveSecret(env.CAM_MP4_CGI),
+    resolveSecret(env.CAM_JPG_CGI),
+  ]);
+  if (!digestUser || !digestPass || !machineName || !sdcardCgi || !mp4Cgi || !jpgCgi) {
     return null;
   }
   return {
-    digestUser: env.CAM_DIGEST_USER,
-    digestPass: env.CAM_DIGEST_PASS,
-    machineName: env.CAM_MACHINE_NAME,
-    sdcardCgi: env.CAM_SDCARD_CGI,
-    mp4Cgi: env.CAM_MP4_CGI,
-    jpgCgi: env.CAM_JPG_CGI,
+    digestUser,
+    digestPass,
+    machineName,
+    sdcardCgi,
+    mp4Cgi,
+    jpgCgi,
     cfAccessClientId: env.CAM_CF_ACCESS_CLIENT_ID,
     cfAccessClientSecret: env.CAM_CF_ACCESS_CLIENT_SECRET,
   };
 }
 
-function flickrConfigFrom(env: Env): FlickrConfig | null {
-  if (!env.FLICKR_CONSUMER_KEY || !env.FLICKR_CONSUMER_SECRET || !env.FLICKR_CALLBACK_URL) return null;
-  return {
-    consumerKey: env.FLICKR_CONSUMER_KEY,
-    consumerSecret: env.FLICKR_CONSUMER_SECRET,
-    callbackUrl: env.FLICKR_CALLBACK_URL,
-  };
+async function flickrConfigFrom(env: Env): Promise<FlickrConfig | null> {
+  const [consumerKey, consumerSecret] = await Promise.all([
+    resolveSecret(env.FLICKR_CONSUMER_KEY),
+    resolveSecret(env.FLICKR_CONSUMER_SECRET),
+  ]);
+  if (!consumerKey || !consumerSecret || !env.FLICKR_CALLBACK_URL) return null;
+  return { consumerKey, consumerSecret, callbackUrl: env.FLICKR_CALLBACK_URL };
 }
 
 /** `YYYYMMDD` (UTC)。SD カード側の日付表記と同じ桁数フォーマット。 */
@@ -65,14 +67,14 @@ export async function runScheduled(
   nowMs: number,
   camFetch: typeof fetch = env.CAM_SERVICE.fetch.bind(env.CAM_SERVICE) as typeof fetch,
 ): Promise<void> {
-  const camConfig = camConfigFrom(env);
+  const camConfig = await camConfigFrom(env);
   if (!camConfig) {
     console.warn("CAM_* not fully set — skipping cam scrape");
     return;
   }
   const cam = new CamClient(camConfig, camFetch);
 
-  const flickrConfig = flickrConfigFrom(env);
+  const flickrConfig = await flickrConfigFrom(env);
   const flickr = flickrConfig ? new FlickrClient(flickrConfig) : null;
   const accessToken = getAccessToken(env.FLICKR_ACCESS_TOKEN_JSON);
 
