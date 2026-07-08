@@ -144,7 +144,13 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   // ---- 運用者向け admin (認証は境界の CF Access に委譲、Refs #15) ----
 
   app.post("/admin/sync", async (c) => {
-    const result = await runScheduled(c.env, Date.now());
+    // `?date=YYYYMMDD` を渡すと D1 の最終位置を無視してその日から取り込む
+    // (任意日指定、Refs #21)。未指定なら通常運用 (D1 最終位置 → 無ければ昨日)。
+    const date = c.req.query("date");
+    if (date !== undefined && !/^\d{8}$/.test(date)) {
+      return c.json({ error: "invalid date", message: "date must be YYYYMMDD" }, 400);
+    }
+    const result = await runScheduled(c.env, Date.now(), undefined, date);
     if (!result) return c.json({ error: "not configured", message: "CAM_* is not set" }, 503);
     return c.json(result);
   });
