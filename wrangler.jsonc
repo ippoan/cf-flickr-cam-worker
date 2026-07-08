@@ -40,7 +40,7 @@
 		{
 			"binding": "CAM_DB",
 			"database_name": "cf-flickr-cam-worker-db",
-			"database_id": "REPLACE_ME_RUN_WRANGLER_D1_CREATE",
+			"database_id": "9d0a242d-9145-4a7b-bd50-009a6c5fa052",
 			"migrations_dir": "migrations"
 		}
 	],
