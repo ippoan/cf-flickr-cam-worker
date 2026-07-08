@@ -1,11 +1,13 @@
-// cf-flickr-cam-worker — cron trigger + Flickr OAuth1.0a 認可フロー + upload。
-// Refs ippoan/cf-flickr-cam-worker#1
+// cf-flickr-cam-worker — cron trigger camera scrape + Flickr OAuth1.0a 認可
+// フロー + upload + 状況/画像確認ページ (Hono)。Refs ippoan/cf-flickr-cam-worker#1
 
 import type { Env } from "./env";
-import { handleRequest } from "./routes";
+import { app } from "./routes";
+import { runScheduled } from "./scheduled";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    return handleRequest(request, env);
+  fetch: app.fetch,
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await runScheduled(env, Date.now());
   },
 } satisfies ExportedHandler<Env>;

@@ -8,11 +8,51 @@
 	"account_id": "24b45709d060d957340180e995f0d373",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-05-01",
+	// vitest-pool-workers (ローカルテスト実行基盤) が要求する。本 worker 自体は
+	// Node built-in を使わない (Web Crypto / 標準 fetch のみ)。
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
 	},
+	// カメラ scrape ループ。1 回あたりの処理量は upload_limit で抑えるが、
+	// SD 巡回自体の subrequest 数はカメラの日付/時間量に比例するため長めに取る。
+	"triggers": {
+		"crons": ["*/15 * * * *"]
+	},
 	// custom domain 未確定 (Refs #1) — 決まるまでは workers.dev で運用
 	"workers_dev": true,
+	// カメラは Cloudflare Tunnel 越しの private network 上にあり、Workers VPC
+	// Services 経由で到達する (公開 URL は使わない、2026-07-08 方針転換)。
+	// **service_id は placeholder** — 初回セットアップで Cloudflare Tunnel + VPC
+	// Service を作成し (要 Connectivity Directory Admin ロール)、出力された
+	// service_id に置き換えること (README「One-time setup」参照)。
+	// https://developers.cloudflare.com/workers-vpc/configuration/vpc-services/
+	"vpc_services": [
+		{
+			"binding": "CAM_SERVICE",
+			"service_id": "REPLACE_ME_CREATE_VPC_SERVICE",
+			"remote": true
+		}
+	],
+	// カメラ scrape の状態 (cam_files 相当、当日分のみ最小に保つ) を持つ D1。
+	// **database_id は placeholder** — `npx wrangler d1 create` を実行して置き換える。
+	"d1_databases": [
+		{
+			"binding": "CAM_DB",
+			"database_name": "cf-flickr-cam-worker-db",
+			"database_id": "REPLACE_ME_RUN_WRANGLER_D1_CREATE",
+			"migrations_dir": "migrations"
+		}
+	],
+	// 日次確定後の cam_files メタデータ JSON アーカイブ (画像バイナリは置かない
+	// — 画像本体は Flickr が正)。**bucket は placeholder** —
+	// `npx wrangler r2 bucket create` を実行して置き換える。
+	"r2_buckets": [
+		{
+			"binding": "CAM_ARCHIVE",
+			"bucket_name": "cf-flickr-cam-worker-archive"
+		}
+	],
 	// Flickr access token (永続) + OAuth handshake 中の request_token_secret
 	// (短命 TTL) を保存する。**id は placeholder — 初回セットアップで
 	// `npx wrangler kv namespace create FLICKR_TOKENS` を実行し、出力された
@@ -24,11 +64,12 @@
 			"preview_id": "REPLACE_ME_RUN_WRANGLER_KV_NAMESPACE_CREATE"
 		}
 	],
-	// FLICKR_CONSUMER_KEY / FLICKR_CONSUMER_SECRET / FLICKR_CALLBACK_URL は
-	// `wrangler secret put` を使わず CF Secrets Store 経由で配布する
-	// (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の drift
-	// 検知対象に含めるため)。store_id は placeholder、README「One-time setup」
-	// で secret-inject skill を使って投入すること。
+	// FLICKR_* / CAM_* は `wrangler secret put` を使わず CF Secrets Store 経由で
+	// 配布する (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の
+	// drift 検知対象に含めるため)。CAM_* も含め全て secret 化するのは、本 repo が
+	// public なため URL / machine name / 資格情報を一切 plain var に出さない方針
+	// (rust-flickr #20 と同じ理由)。store_id は placeholder、README
+	// 「One-time setup」で secret-inject skill を使って投入すること。
 	"secrets_store_secrets": [
 		{
 			"binding": "FLICKR_CONSUMER_KEY",
@@ -39,6 +80,36 @@
 			"binding": "FLICKR_CONSUMER_SECRET",
 			"store_id": "REPLACE_ME",
 			"secret_name": "cf-flickr-cam-worker-flickr-consumer-secret"
+		},
+		{
+			"binding": "CAM_DIGEST_USER",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-digest-user"
+		},
+		{
+			"binding": "CAM_DIGEST_PASS",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-digest-pass"
+		},
+		{
+			"binding": "CAM_MACHINE_NAME",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-machine-name"
+		},
+		{
+			"binding": "CAM_SDCARD_CGI",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-sdcard-cgi"
+		},
+		{
+			"binding": "CAM_MP4_CGI",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-mp4-cgi"
+		},
+		{
+			"binding": "CAM_JPG_CGI",
+			"store_id": "REPLACE_ME",
+			"secret_name": "cf-flickr-cam-worker-cam-jpg-cgi"
 		}
 	],
 	"vars": {
@@ -46,6 +117,15 @@
 		"FLICKR_CALLBACK_URL": "https://cf-flickr-cam-worker.workers.dev/oauth/callback"
 	},
 	"secrets": {
-		"required": ["FLICKR_CONSUMER_KEY", "FLICKR_CONSUMER_SECRET"]
+		"required": [
+			"FLICKR_CONSUMER_KEY",
+			"FLICKR_CONSUMER_SECRET",
+			"CAM_DIGEST_USER",
+			"CAM_DIGEST_PASS",
+			"CAM_MACHINE_NAME",
+			"CAM_SDCARD_CGI",
+			"CAM_MP4_CGI",
+			"CAM_JPG_CGI"
+		]
 	}
 }
