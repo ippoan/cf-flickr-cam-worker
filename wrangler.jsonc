@@ -56,17 +56,16 @@
 	],
 	// FLICKR_* / CAM_* は `wrangler secret put` を使わず CF Secrets Store 経由で
 	// 配布する (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の
-	// drift 検知対象に含めるため)。CAM_* も含め全て secret 化するのは、本 repo が
-	// public なため URL / machine name / 資格情報を一切 plain var に出さない方針
-	// (rust-flickr #20 と同じ理由)。
+	// drift 検知対象に含めるため)。資格情報・カメラ内部 IP は secret 化するが、
+	// カメラのベンダー固有 CGI パス (秘匿性なし) は `vars` に置く方針
+	// (2026-07-08 導入、Refs #17)。
 	//
-	// FLICKR_CONSUMER_* / CAM_* の 8 つは `ippoan/rust-flickr` (同じカメラ・同じ
-	// Flickr App を Cloud Run から叩いている現行実装) が既に GCP Secret Manager
-	// に投入済みの secret (`rust-flickr-*`) をそのまま再利用する — 同じ物理カメラ
-	// /Flickr App の認証情報の使い回しであり、新規に人手で値を再入力させない
-	// ための意図的な選択 (2026-07-08、Refs #1)。将来 rust-flickr 側の secret が
-	// rotate/削除される場合は本 repo も追従が必要な点に注意。
-	// OAUTH_STATE_SECRET のみ本 repo 固有の新規 secret。
+	// FLICKR_CONSUMER_* / CAM_DIGEST_* / CAM_MACHINE_NAME は `ippoan/rust-flickr`
+	// (同じカメラ・同じ Flickr App を Cloud Run から叩いていた旧実装、2026-07-08
+	// 廃止済み) が GCP Secret Manager に投入していた `rust-flickr-*` をそのまま
+	// 再利用する — 同じ物理カメラ/Flickr App の認証情報の使い回しであり、新規に
+	// 人手で値を再入力させないための意図的な選択 (Refs #1)。
+	// CAM_HOST / OAUTH_STATE_SECRET は本 repo 固有の新規 secret。
 	"secrets_store_secrets": [
 		{
 			"binding": "FLICKR_CONSUMER_KEY",
@@ -93,20 +92,16 @@
 			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
 			"secret_name": "rust-flickr-cam-machine-name"
 		},
+		// カメラの内部 IP のみ secret 化。CGI パス (snapshot.cgi 等) はカメラの
+		// ベンダー仕様で秘匿性が無いため `vars` (下記) に置く。rust-flickr-staging
+		// (Cloud Run) 廃止に伴い、公開ホスト名ベースの旧 rust-flickr-cam-{sdcard,mp4,
+		// jpg}-cgi (Workers VPC Services の fetch() に公開ホスト名を渡すと VPC の
+		// 外にエスケープし connection_refused になる既知の罠を踏んでいた) から移行
+		// (2026-07-08、Refs #17)。
 		{
-			"binding": "CAM_SDCARD_CGI",
+			"binding": "CAM_HOST",
 			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
-			"secret_name": "rust-flickr-cam-sdcard-cgi"
-		},
-		{
-			"binding": "CAM_MP4_CGI",
-			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
-			"secret_name": "rust-flickr-cam-mp4-cgi"
-		},
-		{
-			"binding": "CAM_JPG_CGI",
-			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
-			"secret_name": "rust-flickr-cam-jpg-cgi"
+			"secret_name": "cf-flickr-cam-worker-cam-host"
 		},
 		// OAuth1.0a ハンドシェイク中の request_token_secret を載せる署名付き cookie
 		// の署名鍵 (`src/oauthState.ts`)。KV を廃止した代わりの一時ストレージ手段。
@@ -134,7 +129,12 @@
 		// auth-staging.ippoan.org 経由に一時変更していたが、原因判明・修正
 		// (Illegal invocation / secrets store binding / service binding
 		// redirect 自動追跡の3件) 済みのため本番 URL に戻す。
-		"FLICKR_CALLBACK_URL": "https://auth.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback"
+		"FLICKR_CALLBACK_URL": "https://auth.ippoan.org/cf-flickr-cam-worker-proxy/oauth/callback",
+		// カメラの CGI パス (host 以降)。カメラのベンダー仕様であり秘匿性が無いため
+		// plain var (host は CAM_HOST secret、Refs #17)。
+		"CAM_SDCARD_CGI_PATH": "/snapshot.cgi?storage=sd&file=/",
+		"CAM_MP4_CGI_PATH": "/playmp4.cgi?storage=sd&file=/",
+		"CAM_JPG_CGI_PATH": "/snapshot.cgi?storage=sd&file=/"
 	}
 	// `secrets.required` は宣言しない — `secrets_store_secrets[].secret_name` が
 	// 自動的に検証対象になる (ci-workflows `secret-verify-gcp.yml` 参照)。
