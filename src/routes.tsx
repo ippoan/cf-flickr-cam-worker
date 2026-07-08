@@ -204,6 +204,44 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     );
   });
 
+  // `/images` (HTML) の JSON 版。live (D1) + archive (R2) の一覧を返す。
+  // flickr_id が数値 (= 実写真) の行には画像取得用の photoUrl を付ける
+  // (`/images/photo/:flickrId` #24 と連携、Refs #26)。
+  app.get("/images/list", async (c) => {
+    const requestedDate = c.req.query("date");
+    if (requestedDate !== undefined && !/^\d{8}$/.test(requestedDate)) {
+      return c.json({ error: "invalid date", message: "date must be YYYYMMDD" }, 400);
+    }
+    const [liveDates, archivedDates] = await Promise.all([
+      c.env.CAM_DB ? listDates(c.env.CAM_DB) : Promise.resolve([]),
+      c.env.CAM_ARCHIVE ? listArchivedDates(c.env.CAM_ARCHIVE) : Promise.resolve([]),
+    ]);
+    const availableDates = [...new Set([...liveDates.slice().reverse(), ...archivedDates])];
+    const date = requestedDate ?? availableDates[0] ?? null;
+
+    let files: CamFileRow[] = [];
+    if (date) {
+      if (liveDates.includes(date)) {
+        files = await listByDate(c.env.CAM_DB, date);
+      } else if (c.env.CAM_ARCHIVE) {
+        const archive = await getArchive(c.env.CAM_ARCHIVE, date);
+        files = archive?.files ?? [];
+      }
+    }
+    return c.json({
+      date,
+      availableDates,
+      files: files.map((f) => ({
+        name: f.name,
+        date: f.date,
+        hour: f.hour,
+        type: f.type,
+        flickrId: f.flickrId,
+        photoUrl: f.flickrId && /^\d+$/.test(f.flickrId) ? `/images/photo/${f.flickrId}` : null,
+      })),
+    });
+  });
+
   // D1 に記録済みの写真だけを対象に Flickr の画像 CDN へ 302 リダイレクトする
   // (`<img src="/images/photo/{id}">` でそのまま使える)。任意 photo_id への
   // オープンリダイレクトを防ぐため D1 に実在する flickr_id に限定し、画像本体は
