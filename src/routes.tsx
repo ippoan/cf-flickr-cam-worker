@@ -15,17 +15,20 @@ import type { Env } from "./env";
 import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
 import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
+import { resolveSecret } from "./secret";
 import { getAccessToken } from "./tokens";
 
 const VERSION = "0.1.0";
 const OAUTH_STATE_COOKIE = "oauth_state";
 
-function flickrClientFrom(env: Env, fetchImpl: typeof fetch): FlickrClient | null {
-  if (!env.FLICKR_CONSUMER_KEY || !env.FLICKR_CONSUMER_SECRET || !env.FLICKR_CALLBACK_URL) return null;
+async function flickrClientFrom(env: Env, fetchImpl: typeof fetch): Promise<FlickrClient | null> {
+  const consumerKey = await resolveSecret(env.FLICKR_CONSUMER_KEY);
+  const consumerSecret = await resolveSecret(env.FLICKR_CONSUMER_SECRET);
+  if (!consumerKey || !consumerSecret || !env.FLICKR_CALLBACK_URL) return null;
   return new FlickrClient(
     {
-      consumerKey: env.FLICKR_CONSUMER_KEY,
-      consumerSecret: env.FLICKR_CONSUMER_SECRET,
+      consumerKey,
+      consumerSecret,
       callbackUrl: env.FLICKR_CALLBACK_URL,
     },
     fetchImpl,
@@ -47,9 +50,10 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   // ---- JSON API (プログラム呼び出し用) ----
 
   app.get("/oauth/url", async (c) => {
-    const client = flickrClientFrom(c.env, fetchImpl);
+    const client = await flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.json({ error: "not configured", message: "FLICKR_* is not set" }, 503);
-    if (!c.env.OAUTH_STATE_SECRET) {
+    const stateSecret = await resolveSecret(c.env.OAUTH_STATE_SECRET);
+    if (!stateSecret) {
       return c.json({ error: "not configured", message: "OAUTH_STATE_SECRET is not set" }, 503);
     }
 
@@ -60,7 +64,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       const message = e instanceof FlickrUpstreamError ? e.message : "flickr request failed";
       return c.json({ error: "upstream", message }, 424);
     }
-    await setOAuthStateCookie(c, requestToken.token, requestToken.secret);
+    await setOAuthStateCookie(c, requestToken.token, requestToken.secret, stateSecret);
     return c.json({ authorization_url: requestToken.authorizationUrl });
   });
 
@@ -72,9 +76,10 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
   // ---- ブラウザ向けページ (OAuth 認可/状況確認・画像確認、Refs #1 2026-07-08) ----
 
   app.get("/oauth/start", async (c) => {
-    const client = flickrClientFrom(c.env, fetchImpl);
+    const client = await flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.text("Flickr not configured", 503);
-    if (!c.env.OAUTH_STATE_SECRET) return c.text("OAUTH_STATE_SECRET is not set", 503);
+    const stateSecret = await resolveSecret(c.env.OAUTH_STATE_SECRET);
+    if (!stateSecret) return c.text("OAUTH_STATE_SECRET is not set", 503);
 
     let requestToken;
     try {
@@ -84,7 +89,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       console.error("oauth/start: request_token failed", e instanceof Error ? e.message : String(e));
       return c.text("Flickr request_token failed", 424);
     }
-    await setOAuthStateCookie(c, requestToken.token, requestToken.secret);
+    await setOAuthStateCookie(c, requestToken.token, requestToken.secret, stateSecret);
     return c.redirect(requestToken.authorizationUrl, 302);
   });
 
@@ -95,14 +100,15 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       return c.text("oauth_token and oauth_verifier are required", 400);
     }
 
-    const client = flickrClientFrom(c.env, fetchImpl);
+    const client = await flickrClientFrom(c.env, fetchImpl);
     if (!client) return c.text("Flickr not configured", 503);
-    if (!c.env.OAUTH_STATE_SECRET) return c.text("OAUTH_STATE_SECRET is not set", 503);
+    const stateSecret = await resolveSecret(c.env.OAUTH_STATE_SECRET);
+    if (!stateSecret) return c.text("OAUTH_STATE_SECRET is not set", 503);
 
     // cookie は成功・失敗を問わず 1 回きりの使い捨て
     const cookieValue = getCookie(c, OAUTH_STATE_COOKIE);
     deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/" });
-    const state = cookieValue ? await verifyState(cookieValue, c.env.OAUTH_STATE_SECRET) : null;
+    const state = cookieValue ? await verifyState(cookieValue, stateSecret) : null;
     if (!state || state.token !== oauthToken) {
       return c.text("unknown or expired oauth_token — restart from /oauth/start", 400);
     }
@@ -169,13 +175,15 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
 }
 
 /** request_token_secret を署名付き HttpOnly cookie に載せる (KV の代替、
- * `oauthState.ts` 冒頭コメント参照)。`/oauth/callback` 側で 1 回きり消費・破棄する。 */
+ * `oauthState.ts` 冒頭コメント参照)。`/oauth/callback` 側で 1 回きり消費・破棄する。
+ * `stateSecret` は呼び出し元で `resolveSecret(c.env.OAUTH_STATE_SECRET)` 済みの値。 */
 async function setOAuthStateCookie(
   c: Context<{ Bindings: Env }>,
   token: string,
   secret: string,
+  stateSecret: string,
 ): Promise<void> {
-  const value = await signState({ token, secret }, c.env.OAUTH_STATE_SECRET);
+  const value = await signState({ token, secret }, stateSecret);
   setCookie(c, OAUTH_STATE_COOKIE, value, {
     httpOnly: true,
     secure: true,

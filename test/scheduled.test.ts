@@ -24,23 +24,23 @@ describe("todayUtc", () => {
 });
 
 describe("camConfigFrom", () => {
-  it("returns null when any CAM_* field is missing", () => {
-    expect(camConfigFrom({ ...env, CAM_DIGEST_USER: "" })).toBeNull();
+  it("returns null when any CAM_* field is missing", async () => {
+    expect(await camConfigFrom({ ...env, CAM_DIGEST_USER: "" })).toBeNull();
   });
 
-  it("builds a full config when all fields are set", () => {
-    const config = camConfigFrom(env);
+  it("builds a full config when all fields are set", async () => {
+    const config = await camConfigFrom(env);
     expect(config).toMatchObject({ digestUser: "test-user", machineName: "cam1" });
   });
 });
 
 describe("flickrConfigFrom", () => {
-  it("returns null when FLICKR_* is not fully set", () => {
-    expect(flickrConfigFrom({ ...env, FLICKR_CONSUMER_KEY: "" })).toBeNull();
+  it("returns null when FLICKR_* is not fully set", async () => {
+    expect(await flickrConfigFrom({ ...env, FLICKR_CONSUMER_KEY: "" })).toBeNull();
   });
 
-  it("builds a config when FLICKR_* is set", () => {
-    expect(flickrConfigFrom(env)).toMatchObject({ consumerKey: "test-consumer-key" });
+  it("builds a config when FLICKR_* is set", async () => {
+    expect(await flickrConfigFrom(env)).toMatchObject({ consumerKey: "test-consumer-key" });
   });
 });
 
