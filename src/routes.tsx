@@ -79,7 +79,9 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     let requestToken;
     try {
       requestToken = await client.getRequestToken();
-    } catch {
+    } catch (e) {
+      // secretは含まれない (Flickr側のHTTPステータス+レスポンスボディのみ、Refs #6)
+      console.error("oauth/start: request_token failed", e instanceof Error ? e.message : String(e));
       return c.text("Flickr request_token failed", 424);
     }
     await setOAuthStateCookie(c, requestToken.token, requestToken.secret);
@@ -108,7 +110,9 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     let accessToken;
     try {
       accessToken = await client.getAccessToken(oauthToken, oauthVerifier, state.secret);
-    } catch {
+    } catch (e) {
+      // secretは含まれない (Flickr側のHTTPステータス+レスポンスボディのみ、Refs #6)
+      console.error("oauth/callback: access_token exchange failed", e instanceof Error ? e.message : String(e));
       return c.text("Flickr access_token exchange failed", 424);
     }
 
