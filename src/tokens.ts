@@ -14,7 +14,7 @@ export type StoredAccessToken = AccessToken;
 
 /** `FLICKR_ACCESS_TOKEN_JSON` (secret, `{token,secret,userNsid,username}` の JSON)
  * をパースする。未設定・不正な JSON は null (= 未接続扱い)。 */
-export function getAccessToken(json: string | undefined): StoredAccessToken | null {
+export function getAccessToken(json: string | null | undefined): StoredAccessToken | null {
   if (!json) return null;
   try {
     const parsed = JSON.parse(json) as Partial<StoredAccessToken>;

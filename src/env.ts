@@ -1,11 +1,11 @@
-import type { SecretBinding } from "./secret";
+import type { SecretBinding } from "@ippoan/mcp-cf-workers/auth/secret";
 
 export interface Env {
   // OAuth 完了後に運用者が secret-inject skill で手動投入する access token
   // (`{token,secret,userNsid,username}` の JSON、Refs #1 2026-07-08 KVから移行)。
-  // 現時点では secrets_store_secrets 未 bind (chicken-egg、README 参照)。将来
-  // binding 化する際は SecretBinding 型に変え resolveSecret() 経由にすること。
-  FLICKR_ACCESS_TOKEN_JSON?: string;
+  // secrets_store_secrets binding のため SecretBinding (Refs #6 と同じ理由 —
+  // SecretsStoreSecret オブジェクトを直読みしないよう resolveSecret() 経由で使う)。
+  FLICKR_ACCESS_TOKEN_JSON?: SecretBinding;
   // OAuth ハンドシェイク中の request_token_secret を載せる署名付き cookie の署名鍵。
   // secrets_store_secrets binding のため SecretBinding (Refs #6: string 直読みで
   // SecretsStoreSecret オブジェクトがそのまま渡っていたバグを修正)。

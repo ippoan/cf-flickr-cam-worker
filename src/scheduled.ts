@@ -9,7 +9,7 @@ import { lastCamFile, listDates } from "./d1";
 import type { Env } from "./env";
 import type { FlickrConfig } from "./flickr";
 import { FlickrClient } from "./flickr";
-import { resolveSecret } from "./secret";
+import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
 import { syncCamFiles } from "./sync";
 import { getAccessToken } from "./tokens";
 
@@ -76,7 +76,7 @@ export async function runScheduled(
 
   const flickrConfig = await flickrConfigFrom(env);
   const flickr = flickrConfig ? new FlickrClient(flickrConfig) : null;
-  const accessToken = getAccessToken(env.FLICKR_ACCESS_TOKEN_JSON);
+  const accessToken = getAccessToken(await resolveSecret(env.FLICKR_ACCESS_TOKEN_JSON));
 
   const now = Math.floor(nowMs / 1000);
   const lastPosition = await lastCamFile(env.CAM_DB);

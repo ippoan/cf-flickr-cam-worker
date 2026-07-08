@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ippoan/mcp-cf-workers": "dev",
     "hono": "^4.6.0"
   },
   "devDependencies": {

@@ -107,8 +107,9 @@ export const OAuthCompletePage: FC<{
       {`printf '%s' '<上記の JSON>' | bash ~/.claude/skills/secret-inject/scripts/inject-secret.sh FLICKR_ACCESS_TOKEN_JSON --targets gcp,cf`}
     </pre>
     <p>
-      投入後、<code>wrangler.jsonc</code> の <code>secrets_store_secrets</code> に{" "}
-      <code>FLICKR_ACCESS_TOKEN_JSON</code> の binding を追加して再 deploy してください。
+      <code>wrangler.jsonc</code> の <code>secrets_store_secrets</code> に既に{" "}
+      <code>FLICKR_ACCESS_TOKEN_JSON</code> の binding があるため、投入後は Worker が
+      次回リクエストから新しい値を読みます (再 deploy 不要)。
     </p>
   </Layout>
 );
