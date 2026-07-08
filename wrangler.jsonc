@@ -137,7 +137,10 @@
 		// (#17 の CAM_HOST 分割時に jpg 用を流用していた誤りを修正、Refs #21)。
 		"CAM_SDCARD_CGI_PATH": "/camera-cgi/admin/sdcard.cgi?action=generate&pagesize=1000&pagenum=1&dir=",
 		"CAM_MP4_CGI_PATH": "/playmp4.cgi?storage=sd&file=/",
-		"CAM_JPG_CGI_PATH": "/snapshot.cgi?storage=sd&file=/"
+		"CAM_JPG_CGI_PATH": "/snapshot.cgi?storage=sd&file=/",
+		// HTML ページの内部リンクに付ける proxy prefix。worker は auth-worker の
+		// `/cf-flickr-cam-worker-proxy/*` 経由でのみ公開されるため固定 (Refs #30)。
+		"PUBLIC_PATH_PREFIX": "/cf-flickr-cam-worker-proxy"
 	}
 	// `secrets.required` は宣言しない — `secrets_store_secrets[].secret_name` が
 	// 自動的に検証対象になる (ci-workflows `secret-verify-gcp.yml` 参照)。
