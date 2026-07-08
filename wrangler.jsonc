@@ -30,7 +30,7 @@
 	"vpc_services": [
 		{
 			"binding": "CAM_SERVICE",
-			"service_id": "REPLACE_ME_CREATE_VPC_SERVICE",
+			"service_id": "019f4092-5452-7b20-8c63-f1c028c1f8f4",
 			"remote": true
 		}
 	],
