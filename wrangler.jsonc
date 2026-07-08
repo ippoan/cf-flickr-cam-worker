@@ -57,56 +57,62 @@
 	// 配布する (email-receiver / nuxt_dtako_logs と同規約 — secrets-inventory の
 	// drift 検知対象に含めるため)。CAM_* も含め全て secret 化するのは、本 repo が
 	// public なため URL / machine name / 資格情報を一切 plain var に出さない方針
-	// (rust-flickr #20 と同じ理由)。store_id は placeholder、README
-	// 「One-time setup」で secret-inject skill を使って投入すること。
+	// (rust-flickr #20 と同じ理由)。
+	//
+	// FLICKR_CONSUMER_* / CAM_* の 8 つは `ippoan/rust-flickr` (同じカメラ・同じ
+	// Flickr App を Cloud Run から叩いている現行実装) が既に GCP Secret Manager
+	// に投入済みの secret (`rust-flickr-*`) をそのまま再利用する — 同じ物理カメラ
+	// /Flickr App の認証情報の使い回しであり、新規に人手で値を再入力させない
+	// ための意図的な選択 (2026-07-08、Refs #1)。将来 rust-flickr 側の secret が
+	// rotate/削除される場合は本 repo も追従が必要な点に注意。
+	// OAUTH_STATE_SECRET のみ本 repo 固有の新規 secret。
 	"secrets_store_secrets": [
 		{
 			"binding": "FLICKR_CONSUMER_KEY",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-flickr-consumer-key"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-consumer-key"
 		},
 		{
 			"binding": "FLICKR_CONSUMER_SECRET",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-flickr-consumer-secret"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-consumer-secret"
 		},
 		{
 			"binding": "CAM_DIGEST_USER",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-digest-user"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-digest-user"
 		},
 		{
 			"binding": "CAM_DIGEST_PASS",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-digest-pass"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-digest-pass"
 		},
 		{
 			"binding": "CAM_MACHINE_NAME",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-machine-name"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-machine-name"
 		},
 		{
 			"binding": "CAM_SDCARD_CGI",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-sdcard-cgi"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-sdcard-cgi"
 		},
 		{
 			"binding": "CAM_MP4_CGI",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-mp4-cgi"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-mp4-cgi"
 		},
 		{
 			"binding": "CAM_JPG_CGI",
-			"store_id": "REPLACE_ME",
-			"secret_name": "cf-flickr-cam-worker-cam-jpg-cgi"
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+			"secret_name": "rust-flickr-cam-jpg-cgi"
 		},
 		// OAuth1.0a ハンドシェイク中の request_token_secret を載せる署名付き cookie
 		// の署名鍵 (`src/oauthState.ts`)。KV を廃止した代わりの一時ストレージ手段。
-		// openssl rand -hex 32 等でランダム生成して secret-inject skill で投入する
-		// (OAuth 完了を待たずに投入可能 — chicken-egg にならない)。
+		// 本 repo 固有の新規 secret (openssl rand -hex 32 で生成、投入済み)。
 		{
 			"binding": "OAUTH_STATE_SECRET",
-			"store_id": "REPLACE_ME",
+			"store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
 			"secret_name": "cf-flickr-cam-worker-oauth-state-secret"
 		}
 		// FLICKR_ACCESS_TOKEN_JSON (access token 本体) はここに含めない —
@@ -118,18 +124,12 @@
 	"vars": {
 		// Flickr OAuth callback URL (非 secret)。custom domain 確定後に更新
 		"FLICKR_CALLBACK_URL": "https://cf-flickr-cam-worker.workers.dev/oauth/callback"
-	},
-	"secrets": {
-		"required": [
-			"FLICKR_CONSUMER_KEY",
-			"FLICKR_CONSUMER_SECRET",
-			"CAM_DIGEST_USER",
-			"CAM_DIGEST_PASS",
-			"CAM_MACHINE_NAME",
-			"CAM_SDCARD_CGI",
-			"CAM_MP4_CGI",
-			"CAM_JPG_CGI",
-			"OAUTH_STATE_SECRET"
-		]
 	}
+	// `secrets.required` は宣言しない — `secrets_store_secrets[].secret_name` が
+	// 自動的に検証対象になる (ci-workflows `secret-verify-gcp.yml` 参照)。
+	// binding 名 (FLICKR_CONSUMER_KEY 等) を `secrets.required` にも重複宣言する
+	// と、(1) 実在しない GCP secret 名としても検証対象になり誤検知する、
+	// (2) wrangler 4.79+ が `secrets.required` の binding を plain Secret として
+	// 扱うため `secrets_store_secrets[].binding` と名前空間衝突する
+	// (実害: ippoan/mcp-relay-rs#21) — の 2 点で二重に有害なので入れない。
 }
