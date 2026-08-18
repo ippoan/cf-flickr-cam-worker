@@ -27,7 +27,7 @@
   時点の staging (`auth-staging.ippoan.org` 経由) で行う。** 初回は
   D1/R2/VPC/Secrets の setup (README) が先、token は OAuth 後の2段階投入。
 - **`workers_dev: false` で完全非公開**。到達は `auth-worker` の
-  `/cf-flickr-cam-worker-proxy/*` (service binding + CF Access) のみ (Refs #3,#4)。
+  `/cf-flickr-cam-worker-proxy/*` (service binding + CF Access) のみ (Refs #3,#4)。**他 Worker 向けの機能は fetch に足さず named entrypoint (`ReportEntrypoint`) の RPC にする (Refs #38)。**
 
 ## ビルド / テスト
 
