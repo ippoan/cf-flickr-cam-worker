@@ -31,11 +31,6 @@ export interface DailyStats {
   pending: number;
 }
 
-// R2 の list は key の辞書順で先頭から `limit` 件を返す (= 上限を小さくすると
-// **古い方**が残り新しい日が落ちる)。1 日 1 object なので上限いっぱいで引き、
-// 新しい順に並べ直してから切る。
-const ARCHIVE_LIST_LIMIT = 1000;
-
 export async function collectDailyStats(env: Env, days: number): Promise<DailyStats> {
   const limit = Math.max(0, Math.floor(days));
 
@@ -44,8 +39,15 @@ export async function collectDailyStats(env: Env, days: number): Promise<DailySt
   const liveDates = new Set(live.map((d) => d.date));
 
   // R2 側 (確定済みの過去日)。D1 に残っている日は二重計上しない。
+  //
+  // 引くのは `limit` 件で足りる: アーカイブ側を新しい順に辿ると 1 件ごとに
+  // 「merged に足す」か「live と重複でスキップ」のどちらかで、スキップは
+  // live.length 回までしか起きない。必要な追加は (limit - live.length) 件なので
+  // 消費は合計 limit 件を超えない。
+  // (#40 の修正前は `limit` を渡すと **古い方**が返ってきたため、暫定で 1000 を
+  //  渡して回避していた。今は listArchivedDates が新しい順に切ってくれる。)
   const merged: DailyStat[] = [...live];
-  for (const date of await listArchivedDates(env.CAM_ARCHIVE, ARCHIVE_LIST_LIMIT)) {
+  for (const date of await listArchivedDates(env.CAM_ARCHIVE, limit)) {
     if (merged.length >= limit) break;
     if (liveDates.has(date)) continue;
     const archive = await getArchive(env.CAM_ARCHIVE, date);

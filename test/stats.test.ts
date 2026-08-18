@@ -85,6 +85,27 @@ describe("collectDailyStats", () => {
     expect(stats.days.map((d) => d.date)).toEqual(["20260110", "20260109"]);
   });
 
+  // R2 側に引く件数は `days` で足りる (Refs #40): アーカイブを新しい順に辿ると
+  // 1 件ごとに「足す」か「live と重複でスキップ」のどちらかで、スキップは
+  // live の件数までしか起きないため、消費は合計 `days` 件を超えない。
+  // D1 と R2 が全面的に重複していても窓が埋まることを固定する。
+  it("still fills the window when every live date is also archived", async () => {
+    for (const date of ["20260106", "20260107", "20260108", "20260109", "20260110"]) {
+      await seedDay(date, 1, 1);
+      await archiveDate(db(), bucket(), date, 5000);
+    }
+    // アーカイブ済みの新しい 2 日が D1 にも入り直している (当日中の再 scrape)
+    await seedDay("20260109", 2, 2);
+    await seedDay("20260110", 3, 3);
+
+    const stats = await collectDailyStats(env, 3);
+    expect(stats.days).toEqual([
+      { date: "20260110", files: 3, uploaded: 3 },
+      { date: "20260109", files: 2, uploaded: 2 },
+      { date: "20260108", files: 1, uploaded: 1 },
+    ]);
+  });
+
   it("returns an empty window for days <= 0 (pending は変わらず数える)", async () => {
     await seedDay("20260110", 1, 0);
     expect(await collectDailyStats(env, 0)).toEqual({ days: [], pending: 1 });
