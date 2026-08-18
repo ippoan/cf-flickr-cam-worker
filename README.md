@@ -62,7 +62,34 @@ Flickr / 運用者ブラウザ
                               から取り込む (Refs #21)。未指定は D1 最終位置 →
                               無ければ昨日から (初回の SD 全期間一斉取込を回避)
           → GET /admin/debug/cam  SD ルート一覧の生レスポンス確認 (Refs #19)
+
+cf-billing-monitor (毎朝 06:00 JST の `[Flickr]` 日次メール)
+  → service binding (entrypoint = ReportEntrypoint) → dailyStats(days)
+    — 公開 route を持たない binding 専用 RPC (下記)
 ```
+
+## 日次メール向け RPC (`ReportEntrypoint`)
+
+`ippoan/cf-billing-monitor` の `[Flickr]` 日次メールは、D1 (当日/未アーカイブ分)
+と R2 archive (確定済みの過去日) をマージした撮影日別サマリを本 Worker から
+RPC で受け取る (`src/stats.ts`、Refs #38)。旧供給元の `ippoan/rust-flickr`
+`GET /stats` は 2026-07-08 の本 repo 移行で廃止済み。
+
+```ts
+// consumer 側 (wrangler.toml)
+// [[services]]
+// binding = "FLICKR_CAM"
+// service = "cf-flickr-cam-worker"
+// entrypoint = "ReportEntrypoint"
+const { days, pending } = await env.FLICKR_CAM.dailyStats(20);
+// days: [{ date, files, uploaded }, ...] 撮影日の新しい順
+// pending: D1 に残っている未アップロード件数 (次回以降の cron が拾う残作業)
+```
+
+`fetch` (Hono) 側には生やさない — auth-worker proxy 越しの公開面を増やさない
+ための **named WorkerEntrypoint = binding 専用**構成 (org 標準: claude-skills
+`knowledge/standards/ops/cloudflare-binding-only-rpc.md`)。なお本パイプラインは
+verify 相当の工程を持たないため、旧レポートの「検証済 / 未検証残」は無い。
 
 ## 現在の実装状態
 
@@ -77,6 +104,7 @@ Flickr / 運用者ブラウザ
 | `src/sync.ts` (scrape→UPSERT→upload オーケストレーション、SD_ZOMBIE判定) | ✅ |
 | `src/scheduled.ts` (cron エントリポイント) | ✅ |
 | `src/routes.tsx` + `src/pages.tsx` (Hono + JSX: 状況/画像確認ページ + JSON API) | ✅ |
+| `src/stats.ts` + `ReportEntrypoint` (日次メール向け撮影日別サマリ RPC、Refs #38) | ✅ |
 
 upstream (`ippoan/rust-flickr` の `sync_cam_files`) との既知の意図的差分は
 `src/sync.ts` 冒頭コメント参照 (初回実行時のブートストラップ挙動を変更)。
