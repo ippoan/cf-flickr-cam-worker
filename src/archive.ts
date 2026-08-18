@@ -36,13 +36,38 @@ export async function archiveDate(db: D1Database, bucket: R2Bucket, date: string
   return files.length;
 }
 
-/** アーカイブ済み日付一覧 (新しい順)。UI の日付ナビゲーション用。 */
+/** R2 の list 1 ページあたりの取得件数 (R2 の上限値)。 */
+const LIST_PAGE_SIZE = 1000;
+
+/**
+ * アーカイブ済み日付一覧 (新しい順、最大 `limit` 件)。UI の日付ナビゲーション用。
+ *
+ * R2 の `list()` は key の**辞書順 (昇順)** で先頭から返すため、`limit` を
+ * そのまま渡すと **古い方**だけが返る (その後に並べ替えても、落ちた新しい日は
+ * 戻ってこない — Refs #40)。key は `archiveKey()` が作る `YYYYMMDD.json` 固定で
+ * 辞書順 = 日付順なので、`truncated`/`cursor` で最後まで辿り**末尾 `limit` 件**
+ * を残せば新しい方が取れる。保持は常に `limit` 件までなので、アーカイブが
+ * 何日ぶんに増えてもメモリは一定。
+ */
 export async function listArchivedDates(bucket: R2Bucket, limit = 60): Promise<string[]> {
-  const listed = await bucket.list({ limit });
-  return listed.objects
-    .map((o) => o.key.replace(/\.json$/, ""))
-    .sort()
-    .reverse();
+  if (limit <= 0) return [];
+
+  const tail: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const listed = await bucket.list({ limit: LIST_PAGE_SIZE, cursor });
+    for (const o of listed.objects) {
+      // key 形式が違うものは辞書順 = 日付順の前提を壊すので数に入れない
+      // (`archiveKey()` 以外の書き手は居ない想定 — 念のための保険)。
+      if (/^\d{8}\.json$/.test(o.key)) tail.push(o.key.slice(0, 8));
+    }
+    // 末尾 `limit` 件だけ残す (先頭 = 古い方から捨てる)
+    if (tail.length > limit) tail.splice(0, tail.length - limit);
+    if (!listed.truncated) break;
+    cursor = listed.cursor;
+  }
+
+  return tail.reverse();
 }
 
 /** 指定日のアーカイブを読む。無ければ null。 */

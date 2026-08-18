@@ -57,6 +57,31 @@ describe("getArchive", () => {
   });
 });
 
+/** `20260101` から連番で `count` 日ぶんの日付を古い順に作る (月跨ぎを含む)。 */
+function archivedDateRange(count: number): string[] {
+  const dates: string[] = [];
+  const start = Date.UTC(2026, 0, 1);
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start + i * 86_400_000);
+    dates.push(
+      `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`,
+    );
+  }
+  return dates;
+}
+
+/** D1 を経由せず R2 に直接アーカイブ JSON を置く (件数を稼ぐため)。 */
+async function putArchives(dates: string[]): Promise<void> {
+  // 1000 件超のケースがあるので 50 件ずつ並行で置く
+  for (let i = 0; i < dates.length; i += 50) {
+    await Promise.all(
+      dates
+        .slice(i, i + 50)
+        .map((date) => bucket().put(`${date}.json`, JSON.stringify({ date, archivedAt: 1000, files: [] }))),
+    );
+  }
+}
+
 describe("listArchivedDates", () => {
   it("returns archived dates newest first", async () => {
     await upsertCamFile(db(), "a.jpg", "20260101", "000000", "jpg", 1000);
@@ -71,6 +96,56 @@ describe("listArchivedDates", () => {
 
   it("returns an empty list when nothing is archived yet", async () => {
     expect(await listArchivedDates(bucket())).toEqual([]);
+  });
+
+  // Refs #40: R2 の list は key の辞書順 (昇順) で先頭から返すので、`limit` を
+  // そのまま bucket.list() に渡すと **古い方** だけが返る。60 日を超えた時点で
+  // 最近の日付がナビから消えていた。
+  it("returns the NEWEST limit dates when there are more archives than limit", async () => {
+    const dates = archivedDateRange(65); // > 既定 limit 60
+    await putArchives(dates);
+
+    const listed = await listArchivedDates(bucket());
+
+    expect(listed).toHaveLength(60);
+    // 新しい順 = 末尾 60 件を反転したもの
+    expect(listed).toEqual(dates.slice(-60).reverse());
+    // 最新日が含まれる (バグ時はここが 60 件目の古い日になっていた)
+    expect(listed[0]).toBe(dates[dates.length - 1]);
+    // 溢れたぶんは古い方から落ちる
+    expect(listed).not.toContain(dates[0]);
+    expect(listed).not.toContain(dates[4]);
+  });
+
+  it("pages past the R2 list page size (1000 objects) and still returns the newest", async () => {
+    // cursor ループが無いと、ここで返るのは辞書順で先頭 1000 件 = 一番古い方。
+    const dates = archivedDateRange(1005);
+    await putArchives(dates);
+
+    expect(await listArchivedDates(bucket())).toEqual(dates.slice(-60).reverse());
+    expect(await listArchivedDates(bucket(), 3)).toEqual(dates.slice(-3).reverse());
+  }, 60_000);
+
+  it("returns every archived date when limit exceeds the number of archives", async () => {
+    const dates = archivedDateRange(120);
+    await putArchives(dates);
+
+    expect(await listArchivedDates(bucket(), 120)).toEqual(dates.slice().reverse());
+    expect(await listArchivedDates(bucket(), 500)).toEqual(dates.slice().reverse());
+  });
+
+  it("returns an empty list for a non-positive limit", async () => {
+    await putArchives(archivedDateRange(3));
+    expect(await listArchivedDates(bucket(), 0)).toEqual([]);
+    expect(await listArchivedDates(bucket(), -1)).toEqual([]);
+  });
+
+  it("ignores keys that are not {YYYYMMDD}.json", async () => {
+    await putArchives(["20260101", "20260102"]);
+    await bucket().put("zzz-not-an-archive", "x");
+    await bucket().put("20260103.json.bak", "x");
+
+    expect(await listArchivedDates(bucket())).toEqual(["20260102", "20260101"]);
   });
 });
 
