@@ -22,8 +22,24 @@ const Layout: FC<{ title: string; prefix: string; children?: unknown }> = ({ tit
         .badge-zombie { background: #e5e7eb; color: #4b5563; }
         .button { display: inline-block; background: #0ea5e9; color: #fff; padding: 0.5rem 1rem; border-radius: 0.4rem; text-decoration: none; border: none; font-size: 1rem; cursor: pointer; }
         nav a { margin-right: 1rem; }
-        .thumb { max-width: 160px; height: auto; border-radius: 4px; display: block; }
+        .thumb { max-width: 160px; height: auto; border-radius: 4px; display: block; transition: transform 0.15s; }
         .thumb-cell { width: 170px; }
+        .thumb-box { display: grid; place-items: center; }
+        [data-rot="90"] .thumb-box, [data-rot="270"] .thumb-box { height: 160px; }
+        [data-rot="90"] .thumb, #viewer[data-rot="90"] img { transform: rotate(90deg); }
+        [data-rot="180"] .thumb, #viewer[data-rot="180"] img { transform: rotate(180deg); }
+        [data-rot="270"] .thumb, #viewer[data-rot="270"] img { transform: rotate(270deg); }
+        .toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+        .hint { color: #6b7280; font-size: 0.8rem; }
+        #viewer { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: none; place-items: center; z-index: 10; }
+        #viewer.open { display: grid; }
+        #viewer img { max-width: 96vw; max-height: 86vh; transition: transform 0.15s; }
+        #viewer[data-rot="90"] img, #viewer[data-rot="270"] img { max-width: 86vh; max-height: 96vw; }
+        #viewer .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; color: #fff; font-size: 0.9rem; }
+        #viewer button { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 0.4rem; padding: 0.4rem 0.8rem; font-size: 1rem; cursor: pointer; }
+        #viewer .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2rem; padding: 0.5rem 0.9rem; }
+        #viewer .prev { left: 0.5rem; }
+        #viewer .next { right: 0.5rem; }
       `}</style>
     </head>
     <body>
@@ -134,6 +150,69 @@ function fileBadge(flickrId: string | null): { label: string; className: string 
   return { label: "アップロード済", className: "badge-ok" };
 }
 
+/** 画像確認ページのクライアント側スクリプト。
+ * - 回転: 表示だけ (Flickr の元写真は変えない)。角度は localStorage に保存し、
+ *   サムネイルと拡大表示の両方に `data-rot` で効かせる
+ * - 拡大表示: サムネイルのクリックで画面内に開き、← → (↑ ↓) で前後、R で回転、Esc で閉じる
+ * JS が動かない場合はサムネイルのリンクが従来どおり別タブで開く。 */
+export const IMAGES_PAGE_SCRIPT = `(() => {
+  const KEY = "cam-images-rotation";
+  const table = document.getElementById("images-table");
+  const viewer = document.getElementById("viewer");
+  const img = document.getElementById("viewer-img");
+  const caption = document.getElementById("viewer-caption");
+  const rotateBtn = document.getElementById("rotate-btn");
+  if (!table || !viewer || !img || !caption || !rotateBtn) return;
+  const links = Array.from(table.querySelectorAll("a.thumb-link"));
+  let rot = 0;
+  try { rot = (parseInt(localStorage.getItem(KEY) || "0", 10) || 0) % 360; } catch (e) {}
+  let index = -1;
+  const applyRot = () => {
+    table.dataset.rot = String(rot);
+    viewer.dataset.rot = String(rot);
+    rotateBtn.textContent = "↻ 90° 回転 (いま " + rot + "°)";
+  };
+  const rotate = () => {
+    rot = (rot + 90) % 360;
+    try { localStorage.setItem(KEY, String(rot)); } catch (e) {}
+    applyRot();
+  };
+  const preload = (i) => { if (links[i]) { const p = new Image(); p.src = links[i].href; } };
+  const show = (i) => {
+    if (links.length === 0) return;
+    index = (i + links.length) % links.length;
+    const a = links[index];
+    img.src = a.href;
+    caption.textContent = (index + 1) + " / " + links.length + "  " + (a.dataset.name || "");
+    viewer.classList.add("open");
+    preload(index + 1);
+    preload(index - 1);
+  };
+  const close = () => { viewer.classList.remove("open"); img.removeAttribute("src"); index = -1; };
+  links.forEach((a, i) => a.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    show(i);
+  }));
+  rotateBtn.addEventListener("click", rotate);
+  document.getElementById("viewer-rotate").addEventListener("click", rotate);
+  document.getElementById("viewer-close").addEventListener("click", close);
+  document.getElementById("viewer-prev").addEventListener("click", () => show(index - 1));
+  document.getElementById("viewer-next").addEventListener("click", () => show(index + 1));
+  viewer.addEventListener("click", (e) => { if (e.target === viewer) close(); });
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // Ctrl+R (再読込) 等は奪わない
+    if (e.key === "r" || e.key === "R") { rotate(); e.preventDefault(); return; }
+    if (index < 0) return;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") { show(index + 1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { show(index - 1); e.preventDefault(); }
+    else if (e.key === "Escape") { close(); e.preventDefault(); }
+  });
+  applyRot();
+})();`;
+
 export const ImagesPage: FC<{
   date: string | null;
   availableDates: string[];
@@ -146,19 +225,25 @@ export const ImagesPage: FC<{
       <p>まだデータがありません。</p>
     ) : (
       <>
-        <form method="get" action={`${prefix}/images`}>
-          <label>
-            日付:{" "}
-            <select name="date" onchange="this.form.submit()">
-              {availableDates.map((d) => (
-                <option value={d} selected={d === date}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        </form>
-        <table>
+        <div class="toolbar">
+          <form method="get" action={`${prefix}/images`}>
+            <label>
+              日付:{" "}
+              <select name="date" onchange="this.form.submit()">
+                {availableDates.map((d) => (
+                  <option value={d} selected={d === date}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </form>
+          <button type="button" class="button" id="rotate-btn">
+            ↻ 90° 回転
+          </button>
+          <span class="hint">画像をクリックで拡大 / ← → で前後 / R で回転 / Esc で閉じる</span>
+        </div>
+        <table id="images-table">
           <thead>
             <tr>
               <th>プレビュー</th>
@@ -179,8 +264,16 @@ export const ImagesPage: FC<{
                   <td class="thumb-cell">
                     {uploaded ? (
                       // date を付けて archive 済み写真も引けるようにする (Refs #28)
-                      <a href={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=b`} target="_blank" rel="noreferrer">
-                        <img class="thumb" src={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=m`} alt={f.name} loading="lazy" />
+                      <a
+                        class="thumb-link"
+                        href={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=b`}
+                        data-name={f.name}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <span class="thumb-box">
+                          <img class="thumb" src={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=m`} alt={f.name} loading="lazy" />
+                        </span>
                       </a>
                     ) : null}
                   </td>
@@ -201,6 +294,19 @@ export const ImagesPage: FC<{
             })}
           </tbody>
         </table>
+        <div id="viewer" role="dialog" aria-modal="true">
+          <div class="bar">
+            <span id="viewer-caption"></span>
+            <span>
+              <button type="button" id="viewer-rotate">↻ 90°</button>{" "}
+              <button type="button" id="viewer-close">✕</button>
+            </span>
+          </div>
+          <button type="button" class="nav prev" id="viewer-prev" aria-label="前の画像">‹</button>
+          <img id="viewer-img" alt="" />
+          <button type="button" class="nav next" id="viewer-next" aria-label="次の画像">›</button>
+        </div>
+        <script dangerouslySetInnerHTML={{ __html: IMAGES_PAGE_SCRIPT }} />
       </>
     )}
   </Layout>

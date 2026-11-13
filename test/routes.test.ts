@@ -222,6 +222,23 @@ describe("GET / (status page)", () => {
 });
 
 describe("GET /images (image browsing page)", () => {
+  it("renders the rotate button, the in-page viewer and its keyboard script for uploaded photos", async () => {
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
+    await setCamFileFlickrId(env.CAM_DB, "a.jpg", "987654");
+
+    const res = await createApp().request("/images?date=20260101", {}, env);
+    const html = await res.text();
+    expect(html).toContain(`id="rotate-btn"`);
+    expect(html).toContain(`id="viewer"`);
+    expect(html).toContain(`class="thumb-link"`);
+    expect(html).toContain(`data-name="a.jpg"`);
+    // script は escape されずにそのまま埋まる (矢印キー・回転の保存)
+    expect(html).toContain(`"ArrowRight"`);
+    expect(html).toContain(`localStorage.setItem(KEY`);
+    expect(html).not.toContain("&quot;ArrowRight&quot;");
+  });
+
   it("shows a message when there is no data yet", async () => {
     const res = await createApp().request("/images", {}, env);
     expect(res.status).toBe(200);
