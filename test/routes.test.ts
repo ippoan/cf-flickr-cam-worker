@@ -222,6 +222,29 @@ describe("GET / (status page)", () => {
 });
 
 describe("GET /images (image browsing page)", () => {
+  it("filters by kind (jpg / mp4) and shows per-kind counts in the selector", async () => {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);
+    await upsertCamFile(env.CAM_DB, "Event20260101_000001.jpg", "20260101", "000000", "jpg", 1000);
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.mp4", "20260101", "000000", "mp4", 1000);
+
+    const mp4 = await (await createApp().request("/images?date=20260101&kind=mp4", {}, env)).text();
+    expect(mp4).toContain("Event20260101_000000.mp4");
+    expect(mp4).not.toContain("Event20260101_000000.jpg");
+    expect(mp4).toMatch(/<option value="mp4" selected="">/);
+    expect(mp4).toContain("すべて (3)");
+    expect(mp4).toContain("jpg (写真) (2)");
+    expect(mp4).toContain("mp4 (動画) (1)");
+
+    const jpg = await (await createApp().request("/images?date=20260101&kind=jpg", {}, env)).text();
+    expect(jpg).toContain("Event20260101_000001.jpg");
+    expect(jpg).not.toContain("Event20260101_000000.mp4");
+
+    // 不明な kind は全部
+    const all = await (await createApp().request("/images?date=20260101&kind=bogus", {}, env)).text();
+    expect(all).toContain("Event20260101_000000.jpg");
+    expect(all).toContain("Event20260101_000000.mp4");
+  });
+
   it("renders the rotate button, the in-page viewer and its keyboard script for uploaded photos", async () => {
     const { setCamFileFlickrId } = await import("../src/d1");
     await upsertCamFile(env.CAM_DB, "a.jpg", "20260101", "000000", "jpg", 1000);
