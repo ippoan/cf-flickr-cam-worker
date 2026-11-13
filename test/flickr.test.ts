@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FlickrClient, FlickrUpstreamError } from "../src/flickr";
+import { FlickrClient, FlickrUpstreamError, pickVideoSource } from "../src/flickr";
 
 function testConfig() {
   return {
@@ -111,6 +111,43 @@ describe("FlickrClient.photosGetInfo", () => {
     const { fn } = mockFetch([new Response("oops", { status: 500 })]);
     const client = new FlickrClient(testConfig(), fn);
     await expect(client.photosGetInfo("1", "at", "ats")).rejects.toThrow(FlickrUpstreamError);
+  });
+});
+
+describe("FlickrClient.photosGetSizes / pickVideoSource", () => {
+  it("calls flickr.photos.getSizes and returns the size list", async () => {
+    const { fn, calls } = mockFetch([
+      jsonResponse(200, { stat: "ok", sizes: { size: [{ label: "720p", source: "https://v/720", media: "video" }] } }),
+    ]);
+    const client = new FlickrClient(testConfig(), fn);
+    const sizes = await client.photosGetSizes("5050", "at", "ats");
+    expect(sizes).toEqual([{ label: "720p", source: "https://v/720", media: "video" }]);
+    expect(new URL(calls[0].input as string).searchParams.get("method")).toBe("flickr.photos.getSizes");
+  });
+
+  it("returns [] when sizes are missing", async () => {
+    const { fn } = mockFetch([jsonResponse(200, { stat: "ok" })]);
+    const client = new FlickrClient(testConfig(), fn);
+    expect(await client.photosGetSizes("1", "at", "ats")).toEqual([]);
+  });
+
+  it("throws when getInfo has no photo", async () => {
+    const { fn } = mockFetch([jsonResponse(200, { stat: "ok" })]);
+    const client = new FlickrClient(testConfig(), fn);
+    await expect(client.photosGetInfo("1", "at", "ats")).rejects.toThrow(/No photo data/);
+  });
+
+  it("pickVideoSource prefers transcoded sizes, skips the player, falls back to any video", () => {
+    expect(
+      pickVideoSource([
+        { label: "Video Player", source: "p", media: "video" },
+        { label: "Video Original", source: "orig", media: "video" },
+        { label: "720p", source: "720", media: "video" },
+      ]),
+    ).toBe("720");
+    expect(pickVideoSource([{ label: "Something New", source: "new", media: "video" }])).toBe("new");
+    expect(pickVideoSource([{ label: "Medium", source: "m", media: "photo" }])).toBeNull();
+    expect(pickVideoSource([{ label: "Video Player", source: "p", media: "video" }])).toBeNull();
   });
 });
 

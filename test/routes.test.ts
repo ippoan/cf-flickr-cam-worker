@@ -444,6 +444,96 @@ describe("GET /images/list", () => {
   });
 });
 
+describe("GET /images/video/:flickrId", () => {
+  async function seedVideo(flickrId: string) {
+    await upsertCamFile(env.CAM_DB, "Event20260101_000000.mp4", "20260101", "000000", "mp4", 1000);
+    const { setCamFileFlickrId } = await import("../src/d1");
+    await setCamFileFlickrId(env.CAM_DB, "Event20260101_000000.mp4", flickrId);
+  }
+  const authed = () => ({ ...env, FLICKR_ACCESS_TOKEN_JSON: accessTokenJson() });
+
+  it("400s for a non-numeric id", async () => {
+    const res = await createApp().request("/images/video/abc", {}, env);
+    expect(res.status).toBe(400);
+  });
+
+  it("404s when the id is not a known (D1-recorded) photo", async () => {
+    const res = await createApp().request("/images/video/999", {}, authed());
+    expect(res.status).toBe(404);
+  });
+
+  it("503s when not authorized with Flickr", async () => {
+    await seedVideo("777");
+    const res = await createApp().request("/images/video/777", {}, env);
+    expect(res.status).toBe(503);
+  });
+
+  it("302-redirects to the preferred playable video size", async () => {
+    await seedVideo("777");
+    const fetchImpl = mockFetch([
+      new Response(
+        JSON.stringify({
+          stat: "ok",
+          sizes: {
+            size: [
+              { label: "Medium", source: "https://live.staticflickr.com/1/777_s.jpg", media: "photo" },
+              { label: "Video Player", source: "https://www.flickr.com/apps/video/stewart.swf", media: "video" },
+              { label: "Video Original", source: "https://www.flickr.com/photos/u/777/play/orig/x/", media: "video" },
+              { label: "Site MP4", source: "https://www.flickr.com/photos/u/777/play/site/x/", media: "video" },
+            ],
+          },
+        }),
+      ),
+    ]);
+    const res = await createApp(fetchImpl).request("/images/video/777", { redirect: "manual" }, authed());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://www.flickr.com/photos/u/777/play/site/x/");
+  });
+
+  it("404s when Flickr has no playable video yet (photo or still processing)", async () => {
+    await seedVideo("777");
+    const fetchImpl = mockFetch([
+      new Response(
+        JSON.stringify({ stat: "ok", sizes: { size: [{ label: "Medium", source: "https://x/y.jpg", media: "photo" }] } }),
+      ),
+    ]);
+    const res = await createApp(fetchImpl).request("/images/video/777", {}, authed());
+    expect(res.status).toBe(404);
+  });
+
+  it("502s when getSizes fails upstream", async () => {
+    await seedVideo("777");
+    const fetchImpl = mockFetch([new Response("oops", { status: 500 })]);
+    const res = await createApp(fetchImpl).request("/images/video/777", {}, authed());
+    expect(res.status).toBe(502);
+  });
+
+  it("finds an archived video via ?date=", async () => {
+    await seedVideo("777");
+    await archiveDate(env.CAM_DB, env.CAM_ARCHIVE, "20260101", 5000);
+    const fetchImpl = mockFetch([
+      new Response(
+        JSON.stringify({ stat: "ok", sizes: { size: [{ label: "720p", source: "https://v/720.mp4", media: "video" }] } }),
+      ),
+    ]);
+    const res = await createApp(fetchImpl).request(
+      "/images/video/777?date=20260101",
+      { redirect: "manual" },
+      authed(),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://v/720.mp4");
+  });
+
+  it("links mp4 rows to the video endpoint in the images page", async () => {
+    await seedVideo("777");
+    const html = await (await createApp().request("/images?date=20260101", {}, env)).text();
+    expect(html).toContain(`data-video="/cf-flickr-cam-worker-proxy/images/video/777?date=20260101"`);
+    expect(html).toContain("thumb-link play-mark");
+    expect(html).toContain(`id="viewer-video"`);
+  });
+});
+
 describe("GET /images/photo/:flickrId", () => {
   async function seedUploaded(flickrId: string) {
     await upsertCamFile(env.CAM_DB, "Event20260101_000000.jpg", "20260101", "000000", "jpg", 1000);

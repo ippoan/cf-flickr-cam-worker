@@ -26,15 +26,18 @@ const Layout: FC<{ title: string; prefix: string; children?: unknown }> = ({ tit
         .thumb-cell { width: 170px; }
         .thumb-box { display: grid; place-items: center; }
         [data-rot=r90] .thumb-box, [data-rot=r270] .thumb-box { height: 160px; }
-        [data-rot=r90] .thumb, #viewer[data-rot=r90] img { transform: rotate(90deg); }
-        [data-rot=r180] .thumb, #viewer[data-rot=r180] img { transform: rotate(180deg); }
-        [data-rot=r270] .thumb, #viewer[data-rot=r270] img { transform: rotate(270deg); }
+        [data-rot=r90] .thumb, #viewer[data-rot=r90] .media { transform: rotate(90deg); }
+        [data-rot=r180] .thumb, #viewer[data-rot=r180] .media { transform: rotate(180deg); }
+        [data-rot=r270] .thumb, #viewer[data-rot=r270] .media { transform: rotate(270deg); }
         .toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         .hint { color: #6b7280; font-size: 0.8rem; }
         #viewer { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: none; place-items: center; z-index: 10; }
         #viewer.open { display: grid; }
-        #viewer img { max-width: 96vw; max-height: 86vh; transition: transform 0.15s; }
-        #viewer[data-rot=r90] img, #viewer[data-rot=r270] img { max-width: 86vh; max-height: 96vw; }
+        #viewer .media { max-width: 96vw; max-height: 86vh; transition: transform 0.15s; }
+        #viewer .media[hidden] { display: none; }
+        #viewer[data-rot=r90] .media, #viewer[data-rot=r270] .media { max-width: 86vh; max-height: 96vw; }
+        .play-mark { position: relative; }
+        .play-mark::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 1.6rem; text-shadow: 0 0 6px #000; pointer-events: none; }
         #viewer .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; color: #fff; font-size: 0.9rem; }
         #viewer button { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 0.4rem; padding: 0.4rem 0.8rem; font-size: 1rem; cursor: pointer; }
         #viewer .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2rem; padding: 0.5rem 0.9rem; }
@@ -144,6 +147,10 @@ export const OAuthCompletePage: FC<{
   </Layout>
 );
 
+function isVideo(f: CamFileRow): boolean {
+  return f.type.toLowerCase() === "mp4";
+}
+
 function fileBadge(flickrId: string | null): { label: string; className: string } {
   if (flickrId === null) return { label: "未アップロード", className: "badge-pending" };
   if (flickrId === "SD_ZOMBIE") return { label: "SD消失", className: "badge-zombie" };
@@ -154,15 +161,17 @@ function fileBadge(flickrId: string | null): { label: string; className: string 
  * - 回転: 表示だけ (Flickr の元写真は変えない)。角度は localStorage に保存し、
  *   サムネイルと拡大表示の両方に `data-rot` で効かせる
  * - 拡大表示: サムネイルのクリックで画面内に開き、← → (↑ ↓) で前後、R で回転、Esc で閉じる
+ * - mp4 は拡大表示で `<video>` 再生 (`/images/video/:id` が Flickr の動画 URL に 302)
  * JS が動かない場合はサムネイルのリンクが従来どおり別タブで開く。 */
 export const IMAGES_PAGE_SCRIPT = `(() => {
   const KEY = "cam-images-rotation";
   const table = document.getElementById("images-table");
   const viewer = document.getElementById("viewer");
   const img = document.getElementById("viewer-img");
+  const video = document.getElementById("viewer-video");
   const caption = document.getElementById("viewer-caption");
   const rotateBtn = document.getElementById("rotate-btn");
-  if (!table || !viewer || !img || !caption || !rotateBtn) return;
+  if (!table || !viewer || !img || !video || !caption || !rotateBtn) return;
   const links = Array.from(table.querySelectorAll("a.thumb-link"));
   let rot = 0;
   try { rot = (parseInt(localStorage.getItem(KEY) || "0", 10) || 0) % 360; } catch (e) {}
@@ -177,18 +186,29 @@ export const IMAGES_PAGE_SCRIPT = `(() => {
     try { localStorage.setItem(KEY, String(rot)); } catch (e) {}
     applyRot();
   };
-  const preload = (i) => { if (links[i]) { const p = new Image(); p.src = links[i].href; } };
+  const preload = (i) => { if (links[i] && !links[i].dataset.video) { const p = new Image(); p.src = links[i].href; } };
+  const stopVideo = () => { video.pause(); video.removeAttribute("src"); video.load(); video.hidden = true; };
   const show = (i) => {
     if (links.length === 0) return;
     index = (i + links.length) % links.length;
     const a = links[index];
-    img.src = a.href;
+    if (a.dataset.video) {
+      img.hidden = true;
+      img.removeAttribute("src");
+      video.hidden = false;
+      video.poster = a.href;
+      video.src = a.dataset.video;
+    } else {
+      stopVideo();
+      img.hidden = false;
+      img.src = a.href;
+    }
     caption.textContent = (index + 1) + " / " + links.length + "  " + (a.dataset.name || "");
     viewer.classList.add("open");
     preload(index + 1);
     preload(index - 1);
   };
-  const close = () => { viewer.classList.remove("open"); img.removeAttribute("src"); index = -1; };
+  const close = () => { viewer.classList.remove("open"); img.removeAttribute("src"); stopVideo(); index = -1; };
   links.forEach((a, i) => a.addEventListener("click", (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
@@ -283,9 +303,10 @@ export const ImagesPage: FC<{
                     {uploaded ? (
                       // date を付けて archive 済み写真も引けるようにする (Refs #28)
                       <a
-                        class="thumb-link"
+                        class={isVideo(f) ? "thumb-link play-mark" : "thumb-link"}
                         href={`${prefix}/images/photo/${f.flickrId}?date=${f.date}&size=b`}
                         data-name={f.name}
+                        data-video={isVideo(f) ? `${prefix}/images/video/${f.flickrId}?date=${f.date}` : undefined}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -321,7 +342,8 @@ export const ImagesPage: FC<{
             </span>
           </div>
           <button type="button" class="nav prev" id="viewer-prev" aria-label="前の画像">‹</button>
-          <img id="viewer-img" alt="" />
+          <img id="viewer-img" class="media" alt="" />
+          <video id="viewer-video" class="media" controls autoplay playsinline hidden></video>
           <button type="button" class="nav next" id="viewer-next" aria-label="次の画像">›</button>
         </div>
         <script dangerouslySetInnerHTML={{ __html: IMAGES_PAGE_SCRIPT }} />
