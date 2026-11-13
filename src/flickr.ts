@@ -39,6 +39,29 @@ export interface PhotoInfo {
   secret: string;
 }
 
+export interface PhotoSize {
+  label: string;
+  source: string;
+  media?: string;
+  width?: number | string;
+  height?: number | string;
+}
+
+/** 再生に使う動画の label の優先順 (変換済みの扱いやすいサイズを先に、原本は最後) */
+const VIDEO_LABEL_PREFERENCE = ["720p", "Site MP4", "HD MP4", "1080p", "360p", "Mobile MP4", "Video Original"];
+
+/** getSizes の結果から `<video>` で再生できる URL を選ぶ。動画が無い
+ * (写真 / Flickr 側の変換待ち) なら null。"Video Player" は埋め込みプレイヤー
+ * のページなので除く。 */
+export function pickVideoSource(sizes: PhotoSize[]): string | null {
+  const videos = sizes.filter((s) => s.media === "video" && s.label !== "Video Player" && s.source);
+  for (const label of VIDEO_LABEL_PREFERENCE) {
+    const hit = videos.find((s) => s.label === label);
+    if (hit) return hit.source;
+  }
+  return videos[0]?.source ?? null;
+}
+
 export class FlickrUpstreamError extends Error {}
 
 interface Endpoints {
@@ -143,12 +166,17 @@ export class FlickrClient {
     };
   }
 
-  /** flickr.photos.getInfo を OAuth 署名付きで呼ぶ */
-  async photosGetInfo(photoId: string, accessToken: string, accessTokenSecret: string): Promise<PhotoInfo> {
+  /** OAuth 署名付きで REST メソッドを GET し、stat=ok の JSON を返す (getInfo / getSizes 共通) */
+  private async restGetJson<T>(
+    method: string,
+    photoId: string,
+    accessToken: string,
+    accessTokenSecret: string,
+  ): Promise<T> {
     const params = {
       ...this.oauthBaseParams(),
       oauth_token: accessToken,
-      method: "flickr.photos.getInfo",
+      method,
       photo_id: photoId,
       format: "json",
       nojsoncallback: "1",
@@ -173,14 +201,36 @@ export class FlickrClient {
       const body = await response.text();
       throw new FlickrUpstreamError(`Flickr API error for photo ${photoId}: ${response.status} - ${body}`);
     }
-    const apiResponse = (await response.json()) as { photo?: PhotoInfo; stat: string };
+    const apiResponse = (await response.json()) as T & { stat: string };
     if (apiResponse.stat !== "ok") {
       throw new FlickrUpstreamError(`Flickr API returned stat=${apiResponse.stat} for photo ${photoId}`);
     }
-    if (!apiResponse.photo) {
+    return apiResponse;
+  }
+
+  /** flickr.photos.getInfo を OAuth 署名付きで呼ぶ */
+  async photosGetInfo(photoId: string, accessToken: string, accessTokenSecret: string): Promise<PhotoInfo> {
+    const res = await this.restGetJson<{ photo?: PhotoInfo }>(
+      "flickr.photos.getInfo",
+      photoId,
+      accessToken,
+      accessTokenSecret,
+    );
+    if (!res.photo) {
       throw new FlickrUpstreamError(`No photo data in Flickr response for photo ${photoId}`);
     }
-    return apiResponse.photo;
+    return res.photo;
+  }
+
+  /** flickr.photos.getSizes を OAuth 署名付きで呼ぶ (動画の再生 URL もここに入る) */
+  async photosGetSizes(photoId: string, accessToken: string, accessTokenSecret: string): Promise<PhotoSize[]> {
+    const res = await this.restGetJson<{ sizes?: { size?: PhotoSize[] } }>(
+      "flickr.photos.getSizes",
+      photoId,
+      accessToken,
+      accessTokenSecret,
+    );
+    return res.sizes?.size ?? [];
   }
 
   /**

@@ -16,7 +16,7 @@ import { CamClient, parseDirNames } from "./cam";
 import type { CamFileRow } from "./d1";
 import { camFileByFlickrId, dayStats, listByDate, listDates } from "./d1";
 import type { Env } from "./env";
-import { FlickrClient, FlickrUpstreamError } from "./flickr";
+import { FlickrClient, FlickrUpstreamError, pickVideoSource } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
 import { ImagesPage, OAuthCompletePage, StatusPage, type ImageKind } from "./pages";
 import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
@@ -300,18 +300,7 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     if (!FLICKR_STATIC_SIZES.has(size)) {
       return c.json({ error: "invalid size", message: "size must be one of m,z,c,b" }, 400);
     }
-    // アップロード済み写真は日次で R2 archive に移り D1 から消えるため、D1 で
-    // 見つからなければ `?date=` の archive も検索する (Refs #28)。任意 photo_id
-    // への open redirect を防ぐため、どちらかに実在することを必須にする。
-    let known = c.env.CAM_DB ? (await camFileByFlickrId(c.env.CAM_DB, flickrId)) !== null : false;
-    if (!known) {
-      const date = c.req.query("date");
-      if (date && /^\d{8}$/.test(date) && c.env.CAM_ARCHIVE) {
-        const archive = await getArchive(c.env.CAM_ARCHIVE, date);
-        known = archive?.files.some((f) => f.flickrId === flickrId) ?? false;
-      }
-    }
-    if (!known) {
+    if (!(await isKnownFlickrId(c.env, flickrId, c.req.query("date")))) {
       return c.json({ error: "not found", message: "unknown flickr photo" }, 404);
     }
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
@@ -330,7 +319,48 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
     return c.redirect(`https://live.staticflickr.com/${info.server}/${info.id}_${info.secret}_${size}.jpg`, 302);
   });
 
+  // 動画 (mp4) の再生用。getSizes から再生できる動画 URL を選んで 302 する。
+  // 写真の `/images/photo` と同じく、D1 / archive に実在する id だけを通す。
+  app.get("/images/video/:flickrId", async (c) => {
+    const flickrId = c.req.param("flickrId");
+    if (!/^\d+$/.test(flickrId)) {
+      return c.json({ error: "invalid id", message: "flickrId must be numeric" }, 400);
+    }
+    if (!(await isKnownFlickrId(c.env, flickrId, c.req.query("date")))) {
+      return c.json({ error: "not found", message: "unknown flickr photo" }, 404);
+    }
+    const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
+    if (!token) return c.json({ error: "not configured", message: "not authorized with Flickr" }, 503);
+    const client = await flickrClientFrom(c.env, fetchImpl);
+    if (!client) return c.json({ error: "not configured", message: "FLICKR_* is not set" }, 503);
+
+    let sizes;
+    try {
+      sizes = await client.photosGetSizes(flickrId, token.token, token.secret);
+    } catch (e) {
+      console.error("images/video: getSizes failed", e instanceof Error ? e.message : String(e));
+      return c.json({ error: "upstream", message: "flickr getSizes failed" }, 502);
+    }
+    const source = pickVideoSource(sizes);
+    if (!source) {
+      return c.json({ error: "not found", message: "no playable video (not a video, or still processing on Flickr)" }, 404);
+    }
+    return c.redirect(source, 302);
+  });
+
   return app;
+}
+
+/** アップロード済み写真は日次で R2 archive に移り D1 から消えるため、D1 で
+ * 見つからなければ `?date=` の archive も検索する (Refs #28)。任意 photo_id
+ * への open redirect を防ぐため、どちらかに実在することを必須にする。 */
+async function isKnownFlickrId(env: Env, flickrId: string, date: string | undefined): Promise<boolean> {
+  if (env.CAM_DB && (await camFileByFlickrId(env.CAM_DB, flickrId)) !== null) return true;
+  if (date && /^\d{8}$/.test(date) && env.CAM_ARCHIVE) {
+    const archive = await getArchive(env.CAM_ARCHIVE, date);
+    return archive?.files.some((f) => f.flickrId === flickrId) ?? false;
+  }
+  return false;
 }
 
 /** request_token_secret を署名付き HttpOnly cookie に載せる (KV の代替、
