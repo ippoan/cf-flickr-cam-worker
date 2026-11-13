@@ -237,6 +237,9 @@ describe("GET /images (image browsing page)", () => {
     expect(html).toContain(`"ArrowRight"`);
     expect(html).toContain(`localStorage.setItem(KEY`);
     expect(html).not.toContain("&quot;ArrowRight&quot;");
+    // <style> の中身は " が &quot; に escape されるので、回転のセレクタはクォート無しで書く
+    expect(html).toContain("[data-rot=r90] .thumb");
+    expect(html).not.toMatch(/\[data-rot=&quot;/);
   });
 
   it("shows a message when there is no data yet", async () => {

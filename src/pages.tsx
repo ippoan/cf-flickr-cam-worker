@@ -25,16 +25,16 @@ const Layout: FC<{ title: string; prefix: string; children?: unknown }> = ({ tit
         .thumb { max-width: 160px; height: auto; border-radius: 4px; display: block; transition: transform 0.15s; }
         .thumb-cell { width: 170px; }
         .thumb-box { display: grid; place-items: center; }
-        [data-rot="90"] .thumb-box, [data-rot="270"] .thumb-box { height: 160px; }
-        [data-rot="90"] .thumb, #viewer[data-rot="90"] img { transform: rotate(90deg); }
-        [data-rot="180"] .thumb, #viewer[data-rot="180"] img { transform: rotate(180deg); }
-        [data-rot="270"] .thumb, #viewer[data-rot="270"] img { transform: rotate(270deg); }
+        [data-rot=r90] .thumb-box, [data-rot=r270] .thumb-box { height: 160px; }
+        [data-rot=r90] .thumb, #viewer[data-rot=r90] img { transform: rotate(90deg); }
+        [data-rot=r180] .thumb, #viewer[data-rot=r180] img { transform: rotate(180deg); }
+        [data-rot=r270] .thumb, #viewer[data-rot=r270] img { transform: rotate(270deg); }
         .toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
         .hint { color: #6b7280; font-size: 0.8rem; }
         #viewer { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: none; place-items: center; z-index: 10; }
         #viewer.open { display: grid; }
         #viewer img { max-width: 96vw; max-height: 86vh; transition: transform 0.15s; }
-        #viewer[data-rot="90"] img, #viewer[data-rot="270"] img { max-width: 86vh; max-height: 96vw; }
+        #viewer[data-rot=r90] img, #viewer[data-rot=r270] img { max-width: 86vh; max-height: 96vw; }
         #viewer .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; color: #fff; font-size: 0.9rem; }
         #viewer button { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 0.4rem; padding: 0.4rem 0.8rem; font-size: 1rem; cursor: pointer; }
         #viewer .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2rem; padding: 0.5rem 0.9rem; }
@@ -168,8 +168,8 @@ export const IMAGES_PAGE_SCRIPT = `(() => {
   try { rot = (parseInt(localStorage.getItem(KEY) || "0", 10) || 0) % 360; } catch (e) {}
   let index = -1;
   const applyRot = () => {
-    table.dataset.rot = String(rot);
-    viewer.dataset.rot = String(rot);
+    table.dataset.rot = "r" + rot;
+    viewer.dataset.rot = "r" + rot;
     rotateBtn.textContent = "↻ 90° 回転 (いま " + rot + "°)";
   };
   const rotate = () => {
