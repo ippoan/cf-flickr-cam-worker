@@ -18,7 +18,7 @@ import { camFileByFlickrId, dayStats, listByDate, listDates } from "./d1";
 import type { Env } from "./env";
 import { FlickrClient, FlickrUpstreamError } from "./flickr";
 import { REQUEST_TOKEN_TTL_SECONDS, signState, verifyState } from "./oauthState";
-import { ImagesPage, OAuthCompletePage, StatusPage } from "./pages";
+import { ImagesPage, OAuthCompletePage, StatusPage, type ImageKind } from "./pages";
 import { resolveSecret } from "@ippoan/mcp-cf-workers/auth/secret";
 import { camConfigFrom, runScheduled } from "./scheduled";
 import { getAccessToken } from "./tokens";
@@ -220,12 +220,24 @@ export function createApp(fetchImpl: typeof fetch = fetch) {
       }
     }
 
+    // 種類で絞る (?kind=jpg|mp4、それ以外は全部)。件数は絞る前で数える
+    const kindParam = c.req.query("kind");
+    const kind: ImageKind = kindParam === "jpg" || kindParam === "mp4" ? kindParam : "all";
+    const counts = { all: files.length, jpg: 0, mp4: 0 };
+    for (const f of files) {
+      const t = f.type.toLowerCase();
+      if (t === "jpg" || t === "mp4") counts[t]++;
+    }
+    if (kind !== "all") files = files.filter((f) => f.type.toLowerCase() === kind);
+
     const token = getAccessToken(await resolveSecret(c.env.FLICKR_ACCESS_TOKEN_JSON));
     return c.html(
       <ImagesPage
         date={date}
         availableDates={availableDates}
         files={files}
+        kind={kind}
+        counts={counts}
         userNsid={token?.userNsid ?? null}
         prefix={c.env.PUBLIC_PATH_PREFIX ?? ""}
       />,

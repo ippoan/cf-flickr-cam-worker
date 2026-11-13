@@ -213,13 +213,17 @@ export const IMAGES_PAGE_SCRIPT = `(() => {
   applyRot();
 })();`;
 
+export type ImageKind = "all" | "jpg" | "mp4";
+
 export const ImagesPage: FC<{
   date: string | null;
   availableDates: string[];
   files: CamFileRow[];
+  kind?: ImageKind;
+  counts?: { all: number; jpg: number; mp4: number };
   userNsid: string | null;
   prefix: string;
-}> = ({ date, availableDates, files, userNsid, prefix }) => (
+}> = ({ date, availableDates, files, kind = "all", counts, userNsid, prefix }) => (
   <Layout title="画像確認" prefix={prefix}>
     {availableDates.length === 0 ? (
       <p>まだデータがありません。</p>
@@ -235,6 +239,20 @@ export const ImagesPage: FC<{
                     {d}
                   </option>
                 ))}
+              </select>
+            </label>{" "}
+            <label>
+              種類:{" "}
+              <select name="kind" onchange="this.form.submit()">
+                <option value="all" selected={kind === "all"}>
+                  すべて{counts ? ` (${counts.all})` : ""}
+                </option>
+                <option value="jpg" selected={kind === "jpg"}>
+                  jpg (写真){counts ? ` (${counts.jpg})` : ""}
+                </option>
+                <option value="mp4" selected={kind === "mp4"}>
+                  mp4 (動画){counts ? ` (${counts.mp4})` : ""}
+                </option>
               </select>
             </label>
           </form>
